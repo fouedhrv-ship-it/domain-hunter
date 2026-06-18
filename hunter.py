@@ -20,18 +20,32 @@ from dateutil import parser as dateutil_parser
 # ── Configuration ─────────────────────────────────────────────────────────────
 
 def load_config() -> dict:
-    with open("config.json", "r") as f:
-        cfg = json.load(f)
-    overrides = {
-        "telegram_token": "TELEGRAM_TOKEN",
-        "telegram_chat_id": "TELEGRAM_CHAT_ID",
+    # Valeurs par défaut (remplacées par config.json local ou env vars)
+    cfg = {
+        "prix_minimum_alerte": 500,
+        "score_minimum_dashboard": 40,
+        "tlds_autorises": [".fr", ".com", ".net"],
+        "longueur_max_domaine": 15,
+        "rd_max_backorder": 300,
+        "wayback_snapshots_min": 10,
+        "max_domaines_par_run": 350,
+        "rate_limit_delay_seconds": 1,
+    }
+    # Charger config.json si présent (développement local)
+    if os.path.exists("config.json"):
+        with open("config.json", "r") as f:
+            cfg.update(json.load(f))
+    # Les variables d'environnement ont priorité (GitHub Actions)
+    env_map = {
+        "telegram_token":       "TELEGRAM_TOKEN",
+        "telegram_chat_id":     "TELEGRAM_CHAT_ID",
         "openpagerank_api_key": "OPENPAGERANK_API_KEY",
-        "insee_token": "INSEE_TOKEN",
-        "inpi_token": "INPI_TOKEN",
-        "supabase_url": "SUPABASE_URL",
+        "insee_token":          "INSEE_TOKEN",
+        "inpi_token":           "INPI_TOKEN",
+        "supabase_url":         "SUPABASE_URL",
         "supabase_service_key": "SUPABASE_SERVICE_KEY",
     }
-    for key, env_var in overrides.items():
+    for key, env_var in env_map.items():
         val = os.environ.get(env_var)
         if val:
             cfg[key] = val
