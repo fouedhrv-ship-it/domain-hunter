@@ -862,15 +862,21 @@ Cordialement,
 
     try:
         url = f"https://api.telegram.org/bot{token}/sendMessage"
-        requests.post(url, json={
+        r = requests.post(url, json={
             "chat_id": chat_id,
             "text": message,
-            "parse_mode": "MarkdownV2",
+            "parse_mode": "Markdown",
             "disable_web_page_preview": True
         }, timeout=10)
-        log.info(f"Alerte Telegram envoyée : {domain_name}")
+        resp = r.json()
+        if resp.get("ok"):
+            log.info(f"Alerte Telegram envoyée : {domain_name}")
+        else:
+            log.error(f"Telegram rejeté pour {domain_name}: {resp.get('description')}")
+            raise RuntimeError(resp.get("description", "Telegram error"))
     except Exception as e:
         log.error(f"Telegram envoi échoué pour {domain_name}: {e}")
+        raise  # remonte pour que marquer_alerte_envoyee ne soit pas appelé
 
 # ── Supabase ──────────────────────────────────────────────────────────────────
 
@@ -1055,9 +1061,12 @@ def run():
 
             # Alerte Telegram si prix borne basse >= seuil et pas déjà alerté
             if fourchette[0] >= prix_seuil and not domaine_deja_alerte(domain):
-                send_telegram_alert(domain_data, score, fourchette)
-                marquer_alerte_envoyee(domain)
-                stats["alertes"] += 1
+                try:
+                    send_telegram_alert(domain_data, score, fourchette)
+                    marquer_alerte_envoyee(domain)
+                    stats["alertes"] += 1
+                except Exception:
+                    pass  # log déjà fait dans send_telegram_alert
 
         except Exception as e:
             log.error(f"Erreur pipeline {domain}: {e}")
