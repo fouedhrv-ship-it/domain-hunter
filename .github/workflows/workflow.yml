@@ -35,6 +35,8 @@ jobs:
           INPI_TOKEN: ${{ secrets.INPI_TOKEN }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          EDN_SESSID: ${{ secrets.EDN_SESSID }}
+          EDN_REME: ${{ secrets.EDN_REME }}
         run: python hunter.py
 
   # ── Déploiement dashboard (à chaque push sur main) ────────────────────────

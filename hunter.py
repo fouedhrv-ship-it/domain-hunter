@@ -44,6 +44,8 @@ def load_config() -> dict:
         "inpi_token":           "INPI_TOKEN",
         "supabase_url":         "SUPABASE_URL",
         "supabase_service_key": "SUPABASE_SERVICE_KEY",
+        "edn_email":            "EDN_EMAIL",
+        "edn_password":         "EDN_PASSWORD",
     }
     for key, env_var in env_map.items():
         val = os.environ.get(env_var)
@@ -83,62 +85,207 @@ def nom_vers_domaine(denomination: str, ville: str = "") -> list[str]:
 
 # ── ÉTAPE 1 — Collecte ────────────────────────────────────────────────────────
 
-def generer_candidats_rdap() -> list[str]:
+# ── Source WebExpire.fr (gratuite, sans login) ────────────────────────────────
+
+def scraper_webexpire() -> list[dict]:
     """
-    Génère ~200 candidats domaines depuis un dictionnaire de mots-clés
-    business français, puis vérifie via RDAP lesquels expirent dans < 90 jours.
-    Remplace ExpiredDomains.net (login requis) par une approche sans dépendance.
+    Scrape WebExpire.fr/encheres — liste publique de domaines .fr expirés.
+    Colonnes : Nom | Fin | BL | RD | TF | CF | VI | TR | KW | NB | Enchère
+    Pas besoin de login. ~50-100 domaines par page.
     """
-    MOTS = [
-        "plombier", "electricien", "menuisier", "maconnerie", "peinture",
-        "toiture", "isolation", "renovation", "chauffage", "climatisation",
-        "avocat", "notaire", "comptable", "expertise", "conseil", "audit",
-        "immobilier", "agence", "location", "gestion", "patrimoine",
-        "medecin", "dentiste", "kinesitherapeute", "opticien", "pharmacie",
-        "restaurant", "traiteur", "boulangerie", "patisserie", "cuisine",
-        "transport", "demenagement", "livraison", "logistique",
-        "formation", "coaching", "consultant", "digital", "webdesign",
-        "assurance", "credit", "financement", "investissement", "bourse",
-        "auto", "garage", "carrosserie", "mecanique", "vehicule",
-        "piscine", "jardin", "paysagiste", "nettoyage", "pressing",
-        "coiffure", "esthetique", "massage", "bien-etre", "spa",
-        "informatique", "reparation", "depannage", "securite", "reseau",
-        "mariage", "evenement", "photographe", "videaste", "traiteur",
-        "solaire", "energie", "panneaux", "pompe-chaleur", "isolation",
-    ]
-    VILLES = ["paris", "lyon", "marseille", "bordeaux", "toulouse",
-              "nantes", "lille", "strasbourg", "nice", "rennes"]
-    TLDS = [".fr", ".com"]
+    domaines = []
+    try:
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+        }
+        r = requests.get("https://www.webexpire.fr/encheres", headers=headers, timeout=15)
+        if r.status_code != 200:
+            log.warning(f"WebExpire: status {r.status_code}")
+            return []
+        soup = BeautifulSoup(r.text, "lxml")
+        rows = soup.find_all("tr", class_="auctions-table-row")
+        for row in rows:
+            cols = row.find_all("td")
+            if len(cols) < 5:
+                continue
+            # Domaine = id de la ligne (format "befoot-fr" → "befoot.fr")
+            row_id = row.get("id", "")
+            # Convertir le dernier tiret en point pour le TLD
+            if "-" in row_id:
+                parts = row_id.rsplit("-", 1)
+                domain_name = f"{parts[0]}.{parts[1]}"
+            else:
+                continue
+            if "." not in domain_name:
+                continue
+            # Col 3 = BL (backlinks total), Col 4 = RD (referring domains)
+            def col_int(idx):
+                if len(cols) > idx:
+                    m = re.search(r"(\d+)", cols[idx].get_text(strip=True))
+                    return int(m.group(1)) if m else 0
+                return 0
+            bl = col_int(3)
+            rd = col_int(4)
+            tf = col_int(5)
+            cf = col_int(6)
+            # Col 2 = délai (ex: "7 jours", "3 heures")
+            delai_txt = cols[2].get_text(strip=True)
+            domaines.append({
+                "domain": domain_name,
+                "ref_domains": rd,
+                "wayback_snapshots": bl,  # BL comme proxy wayback (seule métrique dispo sans API)
+                "trust_flow": tf,
+                "citation_flow": cf,
+                "source": "webexpire",
+                "delai_enchère": delai_txt,
+            })
+        log.info(f"WebExpire: {len(domaines)} domaines .fr collectés")
+    except Exception as e:
+        log.warning(f"WebExpire scraping: {e}")
+    return domaines
 
-    candidats = []
-    # Mots simples
-    for mot in MOTS:
-        for tld in TLDS:
-            candidats.append(f"{mot}{tld}")
-    # Mot + ville (seulement .fr)
-    import random
-    for mot in random.sample(MOTS, min(20, len(MOTS))):
-        ville = random.choice(VILLES)
-        candidats.append(f"{mot}-{ville}.fr")
+EDN_SESSION: Optional[requests.Session] = None
 
-    # Vérifier RDAP sur un sous-ensemble aléatoire (limite temps : 60 max)
-    random.shuffle(candidats)
-    candidats = candidats[:60]
+def _make_edn_session() -> requests.Session:
+    """Crée une session requests avec les bons headers pour ExpiredDomains.net."""
+    s = requests.Session()
+    s.headers.update({
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "Accept-Language": "fr-FR,fr;q=0.9,en;q=0.8",
+    })
+    return s
 
-    domaines_trouvés = []
-    for domaine in candidats:
+def _edn_session_valide(session: requests.Session) -> bool:
+    """Vérifie qu'une session est bien connectée."""
+    try:
+        r = session.get("https://member.expireddomains.net/domains/expiredfr/", timeout=10)
+        return "login" not in r.url.lower() and len(r.text) > 10000
+    except Exception:
+        return False
+
+def login_expireddomains() -> Optional[requests.Session]:
+    """
+    Obtient une session authentifiée sur ExpiredDomains.net.
+    Stratégie (dans l'ordre) :
+      1. browser_cookie3 — lit les cookies directement depuis Chrome (dev local)
+      2. Cookies stockés en env var EDN_SESSID + EDN_REME (GitHub Actions)
+    """
+    # Stratégie 1 : cookies Chrome (dev local uniquement)
+    try:
+        import browser_cookie3
+        chrome_cookies = browser_cookie3.chrome(domain_name=".expireddomains.net")
+        if chrome_cookies:
+            session = _make_edn_session()
+            for c in chrome_cookies:
+                session.cookies.set(c.name, c.value, domain=c.domain)
+            if _edn_session_valide(session):
+                log.info("EDN : session via cookies Chrome (dev local)")
+                return session
+    except ImportError:
+        pass  # browser_cookie3 absent → GitHub Actions
+    except Exception as e:
+        log.debug(f"EDN cookies Chrome: {e}")
+
+    # Stratégie 2 : cookies stockés en variables d'environnement / config
+    sessid = CONFIG.get("edn_sessid", "") or os.environ.get("EDN_SESSID", "")
+    reme   = CONFIG.get("edn_reme",   "") or os.environ.get("EDN_REME",   "")
+    if sessid or reme:
+        session = _make_edn_session()
+        if sessid:
+            session.cookies.set("ExpiredDomainssessid", sessid, domain="member.expireddomains.net")
+        if reme:
+            session.cookies.set("reme", reme, domain=".expireddomains.net")
+        if _edn_session_valide(session):
+            log.info("EDN : session via cookies stockés (env/config)")
+            return session
+        log.warning("EDN : cookies EDN_SESSID/EDN_REME expirés — rafraîchir les secrets GitHub")
+        return None
+
+    log.warning("EDN : aucune méthode d'authentification disponible (EDN_SESSID/EDN_REME non configurés)")
+    return None
+
+def scrape_expireddomains(session: requests.Session, tld: str = "fr", pages: int = 5) -> list[dict]:
+    """
+    Scrape les domaines expirés depuis le compte ExpiredDomains.net.
+    Colonnes du tableau :
+      0=Domain  3=LE(length)  4=BL(backlinks)  5=DP  6=WBY  7=ABY  8=ACR(snapshots)
+    """
+    domaines = []
+    url_map = {
+        "fr":  "https://member.expireddomains.net/domains/expiredfr/",
+        "com": "https://member.expireddomains.net/domains/expiredcom/",
+        "net": "https://member.expireddomains.net/domains/expirednet/",
+    }
+    base_url = url_map.get(tld, url_map["fr"])
+
+    def extraire_entier(texte: str) -> int:
+        m = re.search(r"(\d+)", texte)
+        return int(m.group(1)) if m else 0
+
+    for page in range(1, pages + 1):
         try:
-            rdap_data = rdap_lookup(domaine)
-            if rdap_data and rdap_data.get("expiry_date"):
-                jours = (rdap_data["expiry_date"] - datetime.now(timezone.utc)).days
-                if 0 < jours < 90:
-                    domaines_trouvés.append(domaine)
-            time.sleep(0.3)
-        except Exception:
-            pass
+            params = {"start": (page - 1) * 25}
+            r = session.get(base_url, params=params, timeout=15)
+            if "login" in r.url.lower() or len(r.text) < 5000:
+                log.warning(f"EDN .{tld} page {page}: session expirée ou page vide")
+                break
+            soup = BeautifulSoup(r.text, "lxml")
+            table = soup.find("table")
+            if not table:
+                log.debug(f"EDN .{tld} page {page}: aucun tableau")
+                break
 
-    log.info(f"Candidats RDAP : {len(domaines_trouvés)} domaines expirant bientôt (sur {len(candidats)} testés)")
-    return domaines_trouvés
+            rows = table.find_all("tr")[1:]  # sauter l'en-tête
+            page_count = 0
+            for row in rows:
+                cols = row.find_all("td")
+                if len(cols) < 6:
+                    continue
+                # Colonne 0 : premier <a> dans la cellule = nom du domaine
+                link = cols[0].find("a")
+                if not link:
+                    continue
+                domain_name = link.get_text(strip=True).strip().lower()
+                if not domain_name or "." not in domain_name:
+                    continue
+                # Col 4 = BL (referring domains)
+                ref_domains = extraire_entier(cols[4].get_text(strip=True)) if len(cols) > 4 else 0
+                # Col 8 = ACR (archive count ≈ wayback snapshots)
+                wayback = extraire_entier(cols[8].get_text(strip=True)) if len(cols) > 8 else 0
+
+                domaines.append({
+                    "domain": domain_name,
+                    "ref_domains": ref_domains,
+                    "wayback_snapshots": wayback,
+                })
+                page_count += 1
+
+            log.info(f"EDN .{tld} page {page} : {page_count} domaines")
+            time.sleep(1.5)
+        except Exception as e:
+            log.warning(f"EDN scraping .{tld} page {page}: {e}")
+            break
+
+    return domaines
+
+def scraper_expireddomains_net() -> list[dict]:
+    """Source principale : scraping ExpiredDomains.net avec session authentifiée."""
+    global EDN_SESSION
+    if EDN_SESSION is None:
+        EDN_SESSION = login_expireddomains()
+    if EDN_SESSION is None:
+        log.warning("EDN : scraping désactivé (pas de session valide)")
+        return []
+
+    tous = []
+    for tld in ["fr", "com"]:
+        domaines = scrape_expireddomains(EDN_SESSION, tld=tld, pages=5)
+        tous.extend(domaines)
+        time.sleep(2)
+
+    log.info(f"ExpiredDomains.net : {len(tous)} domaines collectés (.fr + .com)")
+    return tous
 
 def recherche_inverse_sirene() -> list[dict]:
     """Source 0 : part de SIRENE → cherche si leur domaine expire bientôt.
@@ -189,11 +336,30 @@ def recherche_inverse_sirene() -> list[dict]:
         log.warning(f"Recherche inverse SIRENE échouée: {e}")
     return resultats
 
-def collecter_domaines() -> tuple[list[str], list[dict]]:
-    """Retourne (domaines_bruts, domaines_sirene_enrichis)."""
-    domaines_bruts = generer_candidats_rdap()
+def collecter_domaines() -> tuple[list[dict], list[dict]]:
+    """Retourne (domaines_bruts, domaines_sirene_enrichis).
+    Sources dans l'ordre :
+      1. WebExpire.fr — domaines .fr en enchères, public, sans login (~50 domaines)
+      2. ExpiredDomains.net — si session disponible (cookies Chrome ou secrets GitHub)
+      3. SIRENE inversé — domaines générés depuis les entreprises actives
+    """
+    domaines_bruts = []
+
+    # Source 1 : WebExpire.fr (toujours disponible, sans login)
+    webexpire = scraper_webexpire()
+    domaines_bruts.extend(webexpire)
+
+    # Source 2 : ExpiredDomains.net (si session valide)
+    edn = scraper_expireddomains_net()
+    domaines_bruts.extend(edn)
+
+    # Source 3 : recherche inversée SIRENE
     domaines_sirene = recherche_inverse_sirene()
-    log.info(f"Collecte : {len(domaines_bruts)} candidats RDAP + {len(domaines_sirene)} via SIRENE inversé")
+
+    log.info(
+        f"Collecte : {len(webexpire)} WebExpire + {len(edn)} EDN "
+        f"+ {len(domaines_sirene)} SIRENE inversé = {len(domaines_bruts) + len(domaines_sirene)} total"
+    )
     return domaines_bruts, domaines_sirene
 
 # ── ÉTAPE 2 — Filtre rapide ───────────────────────────────────────────────────
@@ -835,22 +1001,25 @@ def run():
     log.info("=== Domain Hunter démarré ===")
     stats = {"collectes": 0, "apres_filtre": 0, "en_base": 0, "alertes": 0}
 
-    domaines_bruts, domaines_sirene = collecter_domaines()
-    stats["collectes"] = len(domaines_bruts) + len(domaines_sirene)
+    domaines_edn, domaines_sirene = collecter_domaines()
+    stats["collectes"] = len(domaines_edn) + len(domaines_sirene)
 
-    # Domaines issus de la recherche inversée SIRENE (déjà enrichis partiellement)
     pipeline = []
     domaines_vus = set()
+
+    # Source 0 : SIRENE inversé — déjà enrichis, priorité maximale
     for d in domaines_sirene:
         pipeline.append((d["domain"], d))
         domaines_vus.add(d["domain"])
 
-    # Domaines scrapés — filtre rapide
-    for domain in domaines_bruts:
-        if domain in domaines_vus:
+    # Source 1 : ExpiredDomains.net — dicts avec ref_domains + wayback_snapshots scrapés
+    for d in domaines_edn:
+        domain = d.get("domain", "")
+        if not domain or domain in domaines_vus:
             continue
-        if filtrer(domain):
-            pipeline.append((domain, {}))
+        rd = d.get("ref_domains", 0)
+        if filtrer(domain, rd):
+            pipeline.append((domain, {"ref_domains": rd, "wayback_snapshots": d.get("wayback_snapshots", 0)}))
             domaines_vus.add(domain)
 
     pipeline = pipeline[:MAX_DOMAINES]
