@@ -1,35 +1,58 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase.js'
 
 const STATUTS = ['tous', 'nouveau', 'backorder_pose', 'acquis', 'contacte', 'vendu', 'rejete']
 
-const STATUT_COLORS = {
-  nouveau:       '#3b82f6',
-  backorder_pose:'#f59e0b',
-  acquis:        '#8b5cf6',
-  contacte:      '#06b6d4',
-  vendu:         '#22c55e',
-  rejete:        '#6b7280',
+const STATUT_STYLE = {
+  nouveau:        { bg: 'rgba(59,130,246,0.12)', color: '#60a5fa', border: 'rgba(59,130,246,0.25)' },
+  backorder_pose: { bg: 'rgba(245,158,11,0.12)', color: '#fbbf24', border: 'rgba(245,158,11,0.25)' },
+  acquis:         { bg: 'rgba(139,92,246,0.12)', color: '#a78bfa', border: 'rgba(139,92,246,0.25)' },
+  contacte:       { bg: 'rgba(6,182,212,0.12)',  color: '#22d3ee', border: 'rgba(6,182,212,0.25)' },
+  vendu:          { bg: 'rgba(34,197,94,0.12)',  color: '#4ade80', border: 'rgba(34,197,94,0.25)' },
+  rejete:         { bg: 'rgba(107,114,128,0.10)', color: '#6b7280', border: 'rgba(107,114,128,0.2)' },
 }
 
-function Badge({ statut }) {
-  const color = STATUT_COLORS[statut] || '#555'
+function StatutBadge({ statut }) {
+  const s = STATUT_STYLE[statut] || STATUT_STYLE.rejete
   return (
-    <span style={{
-      background: color + '22',
-      color,
-      border: `1px solid ${color}44`,
-      borderRadius: 4,
-      padding: '3px 8px',
-      fontSize: 11,
-      fontWeight: 600,
-      textTransform: 'uppercase',
-      letterSpacing: '0.03em',
-    }}>
-      {statut?.replace('_', ' ') || '—'}
+    <span className="statut-badge" style={{ background: s.bg, color: s.color, border: `1px solid ${s.border}` }}>
+      {statut?.replace(/_/g, ' ') || '—'}
     </span>
   )
+}
+
+function ScoreMini({ score }) {
+  const color = score >= 70 ? '#22d3a8' : score >= 40 ? '#f59e0b' : '#f43f5e'
+  return (
+    <div className="score-mini">
+      <span className="score-num" style={{ color }}>{score ?? '—'}<span style={{ color: 'var(--text-3)', fontSize: 10 }}>/100</span></span>
+      <div className="score-track">
+        <div className="score-fill" style={{ width: `${score || 0}%`, background: color }} />
+      </div>
+    </div>
+  )
+}
+
+function DropBadge({ jours_avant, jours_post }) {
+  if (jours_avant != null && jours_avant > 0) {
+    return <span className="drop-badge hot">▼ {jours_avant}j</span>
+  }
+  if (jours_post != null && jours_post >= 0) {
+    if (jours_post <= 30) return <span className="drop-badge urgent">🔥 J+{jours_post}</span>
+    if (jours_post <= 90) return <span className="drop-badge hot">J+{jours_post}</span>
+    return <span className="drop-badge ok">J+{jours_post}</span>
+  }
+  return <span style={{ color: 'var(--text-3)' }}>—</span>
+}
+
+function Clock() {
+  const [time, setTime] = useState(() => new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }))
+  useEffect(() => {
+    const t = setInterval(() => setTime(new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })), 1000)
+    return () => clearInterval(t)
+  }, [])
+  return <span className="header-clock">{time}</span>
 }
 
 export default function Domaines() {
@@ -39,9 +62,11 @@ export default function Domaines() {
   const [filtreSirene, setFiltreSirene] = useState(false)
   const [filtrePrudence, setFiltrePrudence] = useState(false)
   const [scoreMin, setScoreMin] = useState(0)
+  const [scanning, setScanning] = useState(false)
+  const [scanMsg, setScanMsg] = useState('')
   const navigate = useNavigate()
 
-  async function fetchDomaines() {
+  const fetchDomaines = useCallback(async () => {
     setLoading(true)
     let q = supabase
       .from('domains_scanned')
@@ -56,12 +81,9 @@ export default function Domaines() {
     const { data, error } = await q
     if (!error) setDomaines(data || [])
     setLoading(false)
-  }
+  }, [filtreStatut, filtreSirene, filtrePrudence, scoreMin])
 
-  useEffect(() => { fetchDomaines() }, [filtreStatut, filtreSirene, filtrePrudence, scoreMin])
-
-  const [scanning, setScanning] = useState(false)
-  const [scanMsg, setScanMsg] = useState('')
+  useEffect(() => { fetchDomaines() }, [fetchDomaines])
 
   async function logout() {
     await supabase.auth.signOut()
@@ -84,43 +106,105 @@ export default function Domaines() {
       )
       const json = await res.json()
       if (json.ok) {
-        setScanMsg('✅ Scan lancé — résultats dans ~2 min')
+        setScanMsg('Scan déclenché — résultats dans ~2 min')
         setTimeout(() => { fetchDomaines(); setScanMsg('') }, 120000)
       } else {
-        setScanMsg(`❌ ${json.error || 'Erreur'}`)
+        setScanMsg(`ERREUR : ${json.error || 'Inconnu'}`)
       }
     } catch (e) {
-      setScanMsg(`❌ ${e.message}`)
+      setScanMsg(`ERREUR : ${e.message}`)
     } finally {
       setScanning(false)
     }
   }
 
+  // Stats calculées
+  const total      = domaines.length
+  const sireneCount = domaines.filter(d => d.sirene_actif && d.sirene_nom_correspond).length
+  const alertCount  = domaines.filter(d => d.alerte_telegram_envoyee).length
+  const valeurTotal = domaines.reduce((sum, d) => sum + (d.prix_estime_min || 0), 0)
+
   return (
-    <div style={{ minHeight: '100dvh', background: '#0f0f0f', color: '#e5e5e5' }}>
+    <div className="app-root">
+      {/* ── Header ── */}
       <header className="app-header">
-        <span className="app-logo">🎯 Domain Hunter</span>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <button
-            onClick={lancerScan}
-            disabled={scanning}
-            className="scan-btn"
-          >
-            {scanning ? '⏳ Lancement…' : '▶ Lancer un scan'}
-          </button>
-          <button onClick={logout} className="logout-btn">Déconnexion</button>
+        <div className="header-logo">
+          <span className="header-logo-icon">◈</span>
+          <div>
+            <div className="header-logo-text">Domain<span>Hunter</span></div>
+            <div className="header-logo-ver">v2.0 // SYSTÈME ACTIF</div>
+          </div>
         </div>
+
+        <div className="header-status">
+          <span className="status-dot" />
+          EN LIGNE
+        </div>
+
+        <div className="header-spacer" />
+        <Clock />
+
+        <button onClick={lancerScan} disabled={scanning} className="scan-btn">
+          <span className="scan-btn-icon">{scanning ? '⟳' : '▶'}</span>
+          <span className="scan-btn-label">{scanning ? 'Scan…' : 'Scanner'}</span>
+        </button>
+
+        <button onClick={logout} className="logout-btn">
+          ⏻ Quitter
+        </button>
       </header>
+
+      {/* ── Scan message ── */}
       {scanMsg && (
-        <div className="scan-msg">{scanMsg}</div>
+        <div className="scan-msg">
+          <span className="status-dot" style={{ background: scanMsg.startsWith('ERR') ? 'var(--red)' : 'var(--cyan)' }} />
+          {scanMsg}
+        </div>
       )}
 
+      {/* ── Stats bar ── */}
+      <div className="stats-bar">
+        <div className="stat-card" style={{ '--accent-color': 'var(--cyan)' }}>
+          <div className="stat-label">◈ DOMAINES SCANNÉS</div>
+          <div className="stat-value">{total}</div>
+          <div className="stat-sub">dans la base</div>
+        </div>
+        <div className="stat-card" style={{ '--accent-color': 'var(--green)' }}>
+          <div className="stat-label">✓ SIRENE ACTIF</div>
+          <div className="stat-value" style={{ color: 'var(--green)' }}>{sireneCount}</div>
+          <div className="stat-sub">entreprises actives</div>
+        </div>
+        <div className="stat-card" style={{ '--accent-color': 'var(--amber)' }}>
+          <div className="stat-label">⚡ ALERTES ENVOYÉES</div>
+          <div className="stat-value" style={{ color: 'var(--amber)' }}>{alertCount}</div>
+          <div className="stat-sub">via Telegram</div>
+        </div>
+        <div className="stat-card" style={{ '--accent-color': 'var(--purple)' }}>
+          <div className="stat-label">◎ VALEUR PIPELINE</div>
+          <div className="stat-value" style={{ color: 'var(--purple)' }}>
+            {valeurTotal >= 1000 ? `${(valeurTotal / 1000).toFixed(1)}k` : valeurTotal}€
+          </div>
+          <div className="stat-sub">estimation basse</div>
+        </div>
+      </div>
+
+      {/* ── Filters ── */}
       <div className="filters">
-        <select className="filter-select" value={filtreStatut} onChange={e => setFiltreStatut(e.target.value)}>
+        <span className="filter-label">FILTRES //</span>
+        <select
+          className="filter-select"
+          value={filtreStatut}
+          onChange={e => setFiltreStatut(e.target.value)}
+        >
           {STATUTS.map(st => (
-            <option key={st} value={st}>{st === 'tous' ? 'Tous les statuts' : st.replace('_', ' ')}</option>
+            <option key={st} value={st}>
+              {st === 'tous' ? 'Tous statuts' : st.replace(/_/g, ' ')}
+            </option>
           ))}
         </select>
+
+        <span className="filter-sep" />
+
         <label className="filter-check">
           <input type="checkbox" checked={filtreSirene} onChange={e => setFiltreSirene(e.target.checked)} />
           SIRENE actif
@@ -129,86 +213,112 @@ export default function Domaines() {
           <input type="checkbox" checked={filtrePrudence} onChange={e => setFiltrePrudence(e.target.checked)} />
           🟠 Prudence
         </label>
-        <label className="filter-check">
+
+        <span className="filter-sep" />
+
+        <div className="score-wrapper">
           Score ≥
-          <input type="number" value={scoreMin} min={0} max={100} className="score-input"
-            onChange={e => setScoreMin(Number(e.target.value))} />
-        </label>
-        <span className="filter-count">{domaines.length} domaine{domaines.length !== 1 ? 's' : ''}</span>
+          <input
+            type="number"
+            value={scoreMin}
+            min={0} max={100}
+            className="score-input"
+            onChange={e => setScoreMin(Number(e.target.value))}
+          />
+        </div>
+
+        <div className="filter-count">
+          <span>{total}</span> résultat{total !== 1 ? 's' : ''}
+        </div>
       </div>
 
-      {loading ? (
-        <div className="empty-state">Chargement…</div>
-      ) : domaines.length === 0 ? (
-        <div className="empty-state">Aucun domaine trouvé avec ces filtres.</div>
-      ) : (
-        <div className="domain-list">
-          {/* En-tête visible uniquement sur desktop (masqué via CSS mobile) */}
-          <div className="table-head">
-            <span className="col-domain">Domaine</span>
-            <span className="col-prix">Prix estimé</span>
-            <span className="col-score">Score</span>
-            <span className="col-sirene">SIRENE</span>
-            <span className="col-drop">Drop</span>
-            <span className="col-statut">Statut</span>
+      {/* ── Domain list ── */}
+      <div className="domain-list">
+        {loading ? (
+          <div className="loading-state">
+            <span className="spinner" />
+            Chargement des données…
           </div>
-
-          {domaines.map(d => (
-            <div key={d.id} className="table-row" onClick={() => navigate(`/domaines/${d.id}`)}>
-
-              {/* Colonne domaine */}
-              <span className="col-domain">
-                {d.flag_prudence && '🟠 '}
-                <strong style={{ color: '#fff' }}>{d.domain}</strong>
-              </span>
-
-              {/* Prix — gros sur mobile */}
-              <span className="col-prix">
-                {d.prix_estime_min ? `${d.prix_estime_min}–${d.prix_estime_max}€` : '—'}
-              </span>
-
-              {/* Score + Drop groupés sur mobile via .mobile-meta */}
-              <span className="col-score" style={{ color: scoreColor(d.score) }}>
-                {d.score ?? '—'}/100
-              </span>
-
-              {/* SIRENE */}
-              <span className="col-sirene">
-                {d.sirene_actif && d.sirene_nom_correspond
-                  ? <span style={{ color: '#4ade80' }}>✅ {d.sirene_denomination?.slice(0, 22) || 'Actif'}</span>
-                  : <span style={{ color: '#444' }}>—</span>}
-              </span>
-
-              {/* Drop */}
-              <span className="col-drop">
-                {d.jours_avant_drop != null && d.jours_avant_drop > 0
-                  ? <span style={{ color: '#f59e0b' }}>{d.jours_avant_drop}j</span>
-                  : d.jours_post_drop != null && d.jours_post_drop > 0
-                  ? <span style={{ color: dropColor(d.jours_post_drop) }}>J+{d.jours_post_drop}</span>
-                  : <span style={{ color: '#444' }}>—</span>}
-              </span>
-
-              {/* Statut */}
-              <span className="col-statut">
-                <Badge statut={d.statut} />
-              </span>
+        ) : domaines.length === 0 ? (
+          <div className="empty-state">
+            <span className="empty-icon">◈</span>
+            <span className="empty-title">Aucun domaine trouvé</span>
+            <span className="empty-sub">Modifiez les filtres ou lancez un scan</span>
+          </div>
+        ) : (
+          <>
+            <div className="table-head">
+              <span className="col-domain">DOMAINE</span>
+              <span className="col-prix">PRIX ESTIMÉ</span>
+              <span className="col-score">SCORE</span>
+              <span className="col-sirene">SIRENE</span>
+              <span className="col-drop">DROP</span>
+              <span className="col-statut">STATUT</span>
             </div>
-          ))}
-        </div>
-      )}
+
+            {domaines.map((d, i) => {
+              const sirene_ok = d.sirene_actif && d.sirene_nom_correspond
+              const rowColor = d.flag_prudence
+                ? 'var(--amber)'
+                : sirene_ok
+                ? 'var(--green)'
+                : d.score >= 60
+                ? 'var(--cyan)'
+                : 'var(--text-3)'
+
+              return (
+                <div
+                  key={d.id}
+                  className="table-row"
+                  style={{ '--row-color': rowColor, animationDelay: `${i * 20}ms` }}
+                  onClick={() => navigate(`/domaines/${d.id}`)}
+                >
+                  <div className="col-domain">
+                    <span className="domain-name">
+                      {d.flag_prudence ? '🟠 ' : ''}{d.domain}
+                    </span>
+                    <span className="domain-src">{d.source || 'EDN'}</span>
+                  </div>
+
+                  <div className="col-prix">
+                    {d.prix_estime_min ? (
+                      <>
+                        <span className="price-value">{d.prix_estime_min}€</span>
+                        <span className="price-range">— {d.prix_estime_max}€</span>
+                      </>
+                    ) : (
+                      <span style={{ color: 'var(--text-3)' }}>—</span>
+                    )}
+                  </div>
+
+                  <div className="col-score">
+                    <ScoreMini score={d.score} />
+                  </div>
+
+                  <div className="col-sirene">
+                    {sirene_ok ? (
+                      <div className="sirene-tag">
+                        <span style={{ color: 'var(--green)' }}>✓</span>
+                        <span className="name">{d.sirene_denomination || 'Actif'}</span>
+                      </div>
+                    ) : (
+                      <span style={{ color: 'var(--text-3)', fontSize: 12 }}>—</span>
+                    )}
+                  </div>
+
+                  <div className="col-drop">
+                    <DropBadge jours_avant={d.jours_avant_drop} jours_post={d.jours_post_drop} />
+                  </div>
+
+                  <div className="col-statut">
+                    <StatutBadge statut={d.statut} />
+                  </div>
+                </div>
+              )
+            })}
+          </>
+        )}
+      </div>
     </div>
   )
-}
-
-function scoreColor(score) {
-  if (!score) return '#555'
-  if (score >= 70) return '#22c55e'
-  if (score >= 40) return '#f59e0b'
-  return '#ef4444'
-}
-
-function dropColor(jours) {
-  if (jours <= 30) return '#22c55e'
-  if (jours <= 90) return '#f59e0b'
-  return '#6b7280'
 }
