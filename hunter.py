@@ -318,21 +318,50 @@ def common_crawl(domain: str) -> dict:
 # ── ÉTAPE 3F — INPI ───────────────────────────────────────────────────────────
 
 def inpi_marque(nom_sans_tld: str) -> dict:
-    token = CONFIG.get("inpi_token", "")
-    if not token or token.startswith("TON_"):
-        return {"inpi_marque_deposee": False}
+    """Vérifie si le nom est une marque déposée à l'INPI.
+    Scrape bases-marques.inpi.fr (recherche identique) — gratuit, sans token.
+    Fallback sur l'API data.inpi.fr si un token est configuré.
+    """
+    # Essai 1 : scraping bases-marques.inpi.fr (gratuit, sans clé)
     try:
-        url = f"https://data.inpi.fr/marques?q={nom_sans_tld}"
-        r = requests.get(url, headers={"Authorization": f"Bearer {token}"}, timeout=8)
-        data = r.json()
-        marques = data.get("results", data.get("marques", []))
-        for m in marques:
-            if m.get("statut", "").lower() in ("enregistrée", "enregistree", "registered"):
-                return {"inpi_marque_deposee": True}
+        from bs4 import BeautifulSoup
+        url = "https://bases-marques.inpi.fr/Typo3_INPI/marques_frII_resultats.php"
+        params = {
+            "champ1": nom_sans_tld,
+            "champ1Label": "Dénomination",
+            "critere1": "1",   # recherche identique
+            "bouton": "Lancer+la+recherche"
+        }
+        headers = {"User-Agent": "Mozilla/5.0 (compatible; DomainHunter/1.0)"}
+        r = requests.get(url, params=params, headers=headers, timeout=10)
+        if r.status_code == 200:
+            soup = BeautifulSoup(r.text, "lxml")
+            # Cherche les résultats indiquant une marque enregistrée
+            texte = soup.get_text().lower()
+            if "enregistrée" in texte or "enregistree" in texte or "registered" in texte:
+                # Vérifie qu'il y a vraiment un résultat (pas juste la page vide)
+                tables = soup.find_all("table")
+                if tables and len(texte) > 500:
+                    return {"inpi_marque_deposee": True}
         return {"inpi_marque_deposee": False}
     except Exception as e:
-        log.debug(f"INPI {nom_sans_tld}: {e}")
-        return {"inpi_marque_deposee": False}
+        log.debug(f"INPI scraping {nom_sans_tld}: {e}")
+
+    # Fallback : API data.inpi.fr si token configuré
+    token = CONFIG.get("inpi_token", "")
+    if token and not token.startswith("TON_"):
+        try:
+            url = f"https://data.inpi.fr/marques?q={nom_sans_tld}"
+            r = requests.get(url, headers={"Authorization": f"Bearer {token}"}, timeout=8)
+            data = r.json()
+            marques = data.get("results", data.get("marques", []))
+            for m in marques:
+                if m.get("statut", "").lower() in ("enregistrée", "enregistree", "registered"):
+                    return {"inpi_marque_deposee": True}
+        except Exception as e:
+            log.debug(f"INPI API {nom_sans_tld}: {e}")
+
+    return {"inpi_marque_deposee": False}
 
 # ── ÉTAPE 3G — Réputation/Sécurité ───────────────────────────────────────────
 
