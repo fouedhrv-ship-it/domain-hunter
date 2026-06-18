@@ -5,22 +5,30 @@ import { supabase } from '../lib/supabase.js'
 const STATUTS = ['tous', 'nouveau', 'backorder_pose', 'acquis', 'contacte', 'vendu', 'rejete']
 
 const STATUT_COLORS = {
-  nouveau: '#3b82f6',
-  backorder_pose: '#f59e0b',
-  acquis: '#8b5cf6',
-  contacte: '#06b6d4',
-  vendu: '#22c55e',
-  rejete: '#6b7280',
+  nouveau:       '#3b82f6',
+  backorder_pose:'#f59e0b',
+  acquis:        '#8b5cf6',
+  contacte:      '#06b6d4',
+  vendu:         '#22c55e',
+  rejete:        '#6b7280',
 }
 
 function Badge({ statut }) {
+  const color = STATUT_COLORS[statut] || '#555'
   return (
     <span style={{
-      background: STATUT_COLORS[statut] + '22',
-      color: STATUT_COLORS[statut] || '#888',
-      border: `1px solid ${STATUT_COLORS[statut] || '#333'}44`,
-      borderRadius: 4, padding: '2px 8px', fontSize: 11, fontWeight: 600, textTransform: 'uppercase'
-    }}>{statut?.replace('_', ' ') || '—'}</span>
+      background: color + '22',
+      color,
+      border: `1px solid ${color}44`,
+      borderRadius: 4,
+      padding: '3px 8px',
+      fontSize: 11,
+      fontWeight: 600,
+      textTransform: 'uppercase',
+      letterSpacing: '0.03em',
+    }}>
+      {statut?.replace('_', ' ') || '—'}
+    </span>
   )
 }
 
@@ -57,71 +65,89 @@ export default function Domaines() {
   }
 
   return (
-    <div style={s.page}>
-      <header style={s.header}>
-        <span style={s.logo}>🎯 Domain Hunter</span>
-        <button onClick={logout} style={s.logoutBtn}>Déconnexion</button>
+    <div style={{ minHeight: '100dvh', background: '#0f0f0f', color: '#e5e5e5' }}>
+      <header className="app-header">
+        <span className="app-logo">🎯 Domain Hunter</span>
+        <button onClick={logout} className="logout-btn">Déconnexion</button>
       </header>
 
-      <div style={s.filters}>
-        <select style={s.select} value={filtreStatut} onChange={e => setFiltreStatut(e.target.value)}>
-          {STATUTS.map(st => <option key={st} value={st}>{st === 'tous' ? 'Tous les statuts' : st.replace('_', ' ')}</option>)}
+      <div className="filters">
+        <select className="filter-select" value={filtreStatut} onChange={e => setFiltreStatut(e.target.value)}>
+          {STATUTS.map(st => (
+            <option key={st} value={st}>{st === 'tous' ? 'Tous les statuts' : st.replace('_', ' ')}</option>
+          ))}
         </select>
-        <label style={s.checkLabel}>
+        <label className="filter-check">
           <input type="checkbox" checked={filtreSirene} onChange={e => setFiltreSirene(e.target.checked)} />
-          SIRENE actif uniquement
+          SIRENE actif
         </label>
-        <label style={s.checkLabel}>
+        <label className="filter-check">
           <input type="checkbox" checked={filtrePrudence} onChange={e => setFiltrePrudence(e.target.checked)} />
-          🟠 Prudence uniquement
+          🟠 Prudence
         </label>
-        <label style={s.checkLabel}>
+        <label className="filter-check">
           Score ≥
-          <input type="number" value={scoreMin} min={0} max={100} style={s.scoreInput}
+          <input type="number" value={scoreMin} min={0} max={100} className="score-input"
             onChange={e => setScoreMin(Number(e.target.value))} />
         </label>
-        <span style={s.count}>{domaines.length} domaine{domaines.length !== 1 ? 's' : ''}</span>
+        <span className="filter-count">{domaines.length} domaine{domaines.length !== 1 ? 's' : ''}</span>
       </div>
 
       {loading ? (
-        <div style={s.empty}>Chargement…</div>
+        <div className="empty-state">Chargement…</div>
       ) : domaines.length === 0 ? (
-        <div style={s.empty}>Aucun domaine trouvé avec ces filtres.</div>
+        <div className="empty-state">Aucun domaine trouvé avec ces filtres.</div>
       ) : (
-        <div style={s.table}>
-          <div style={s.tableHead}>
-            <span style={{flex: 2}}>Domaine</span>
-            <span style={{flex: 1}}>Prix estimé</span>
-            <span style={{flex: 1}}>Score</span>
-            <span style={{flex: 1.5}}>SIRENE</span>
-            <span style={{flex: 1}}>Drop</span>
-            <span style={{flex: 1}}>Statut</span>
+        <div className="domain-list">
+          {/* En-tête visible uniquement sur desktop (masqué via CSS mobile) */}
+          <div className="table-head">
+            <span className="col-domain">Domaine</span>
+            <span className="col-prix">Prix estimé</span>
+            <span className="col-score">Score</span>
+            <span className="col-sirene">SIRENE</span>
+            <span className="col-drop">Drop</span>
+            <span className="col-statut">Statut</span>
           </div>
+
           {domaines.map(d => (
-            <div key={d.id} style={s.row} onClick={() => navigate(`/domaines/${d.id}`)}>
-              <span style={{flex: 2}}>
+            <div key={d.id} className="table-row" onClick={() => navigate(`/domaines/${d.id}`)}>
+
+              {/* Colonne domaine */}
+              <span className="col-domain">
                 {d.flag_prudence && '🟠 '}
-                <strong style={{color: '#fff'}}>{d.domain}</strong>
+                <strong style={{ color: '#fff' }}>{d.domain}</strong>
               </span>
-              <span style={{flex: 1, color: '#22c55e', fontWeight: 600}}>
+
+              {/* Prix — gros sur mobile */}
+              <span className="col-prix">
                 {d.prix_estime_min ? `${d.prix_estime_min}–${d.prix_estime_max}€` : '—'}
               </span>
-              <span style={{flex: 1}}>
-                <span style={{color: scoreColor(d.score)}}>{d.score ?? '—'}/100</span>
+
+              {/* Score + Drop groupés sur mobile via .mobile-meta */}
+              <span className="col-score" style={{ color: scoreColor(d.score) }}>
+                {d.score ?? '—'}/100
               </span>
-              <span style={{flex: 1.5, fontSize: 12, color: '#888'}}>
+
+              {/* SIRENE */}
+              <span className="col-sirene">
                 {d.sirene_actif && d.sirene_nom_correspond
-                  ? <span style={{color: '#4ade80'}}>✅ {d.sirene_denomination?.slice(0, 22) || 'Actif'}</span>
-                  : <span style={{color: '#666'}}>—</span>}
+                  ? <span style={{ color: '#4ade80' }}>✅ {d.sirene_denomination?.slice(0, 22) || 'Actif'}</span>
+                  : <span style={{ color: '#444' }}>—</span>}
               </span>
-              <span style={{flex: 1, fontSize: 12}}>
+
+              {/* Drop */}
+              <span className="col-drop">
                 {d.jours_avant_drop != null && d.jours_avant_drop > 0
-                  ? <span style={{color: '#f59e0b'}}>{d.jours_avant_drop}j</span>
+                  ? <span style={{ color: '#f59e0b' }}>{d.jours_avant_drop}j</span>
                   : d.jours_post_drop != null && d.jours_post_drop > 0
-                  ? <span style={{color: dropColor(d.jours_post_drop)}}>J+{d.jours_post_drop}</span>
-                  : '—'}
+                  ? <span style={{ color: dropColor(d.jours_post_drop) }}>J+{d.jours_post_drop}</span>
+                  : <span style={{ color: '#444' }}>—</span>}
               </span>
-              <span style={{flex: 1}}><Badge statut={d.statut} /></span>
+
+              {/* Statut */}
+              <span className="col-statut">
+                <Badge statut={d.statut} />
+              </span>
             </div>
           ))}
         </div>
@@ -131,7 +157,7 @@ export default function Domaines() {
 }
 
 function scoreColor(score) {
-  if (!score) return '#666'
+  if (!score) return '#555'
   if (score >= 70) return '#22c55e'
   if (score >= 40) return '#f59e0b'
   return '#ef4444'
@@ -141,20 +167,4 @@ function dropColor(jours) {
   if (jours <= 30) return '#22c55e'
   if (jours <= 90) return '#f59e0b'
   return '#6b7280'
-}
-
-const s = {
-  page: { minHeight: '100vh', background: '#0f0f0f', color: '#e5e5e5' },
-  header: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 24px', borderBottom: '1px solid #1e1e1e', background: '#141414' },
-  logo: { fontSize: 18, fontWeight: 700, color: '#fff' },
-  logoutBtn: { background: 'none', border: '1px solid #333', color: '#888', padding: '6px 14px', borderRadius: 6, cursor: 'pointer', fontSize: 12 },
-  filters: { display: 'flex', alignItems: 'center', gap: 16, padding: '12px 24px', borderBottom: '1px solid #1e1e1e', background: '#111', flexWrap: 'wrap' },
-  select: { background: '#1a1a1a', border: '1px solid #333', color: '#e5e5e5', padding: '6px 10px', borderRadius: 6, fontSize: 13 },
-  checkLabel: { display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: '#aaa', cursor: 'pointer' },
-  scoreInput: { width: 52, marginLeft: 6, background: '#1a1a1a', border: '1px solid #333', color: '#e5e5e5', padding: '4px 8px', borderRadius: 6, fontSize: 13 },
-  count: { marginLeft: 'auto', fontSize: 12, color: '#555' },
-  table: { padding: '0 24px' },
-  tableHead: { display: 'flex', gap: 16, padding: '10px 12px', borderBottom: '1px solid #1e1e1e', fontSize: 11, color: '#555', textTransform: 'uppercase', letterSpacing: '0.05em' },
-  row: { display: 'flex', gap: 16, padding: '12px', borderBottom: '1px solid #181818', cursor: 'pointer', fontSize: 13, alignItems: 'center', transition: 'background 0.1s' },
-  empty: { padding: 48, textAlign: 'center', color: '#555' }
 }
