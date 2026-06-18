@@ -171,21 +171,28 @@ def login_expireddomains() -> Optional[requests.Session]:
       1. browser_cookie3 — lit les cookies directement depuis Chrome (dev local)
       2. Cookies stockés en env var EDN_SESSID + EDN_REME (GitHub Actions)
     """
-    # Stratégie 1 : cookies Chrome (dev local uniquement)
-    try:
-        import browser_cookie3
-        chrome_cookies = browser_cookie3.chrome(domain_name=".expireddomains.net")
-        if chrome_cookies:
-            session = _make_edn_session()
-            for c in chrome_cookies:
-                session.cookies.set(c.name, c.value, domain=c.domain)
-            if _edn_session_valide(session):
-                log.info("EDN : session via cookies Chrome (dev local)")
-                return session
-    except ImportError:
-        pass  # browser_cookie3 absent → GitHub Actions
-    except Exception as e:
-        log.debug(f"EDN cookies Chrome: {e}")
+    # Stratégie 1 : cookies Chrome (dev local uniquement, jamais sur GitHub Actions)
+    import platform, os as _os
+    chrome_db_paths = {
+        "Darwin": _os.path.expanduser("~/Library/Application Support/Google/Chrome/Default/Cookies"),
+        "Linux":  _os.path.expanduser("~/.config/google-chrome/Default/Cookies"),
+    }
+    chrome_db = chrome_db_paths.get(platform.system(), "")
+    if chrome_db and _os.path.exists(chrome_db):
+        try:
+            import browser_cookie3
+            chrome_cookies = list(browser_cookie3.chrome(domain_name=".expireddomains.net"))
+            if chrome_cookies:
+                session = _make_edn_session()
+                for c in chrome_cookies:
+                    session.cookies.set(c.name, c.value, domain=c.domain)
+                if _edn_session_valide(session):
+                    log.info("EDN : session via cookies Chrome (dev local)")
+                    return session
+        except ImportError:
+            pass
+        except Exception as e:
+            log.debug(f"EDN cookies Chrome: {e}")
 
     # Stratégie 2 : cookies stockés en variables d'environnement / config
     sessid = CONFIG.get("edn_sessid", "") or os.environ.get("EDN_SESSID", "")
