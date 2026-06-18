@@ -860,9 +860,9 @@ Cordialement,
 {timing_note}
 
 📌 *Actions :*
-→ Backorder DropCatch \\(.com\\)
-→ Backorder Dynadot \\(.fr\\)
-→ Backorder WebExpire si .fr \\(30€, AFNIC\\)
+→ [Racheter sur WebExpire](https://www.webexpire.fr/encheres)
+→ [Racheter sur OVH](https://www.ovhcloud.com/fr/domains/)
+→ [Rechercher sur Gandi](https://www.gandi.net/fr/domain/suggest?search={domain_name})
 → [Fiche SIRENE](https://annuaire-entreprises.data.gouv.fr/rechercher?terme={sirene})
 
 {email_template}

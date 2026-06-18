@@ -226,6 +226,9 @@ export default function DomainDetail() {
           </div>
         </div>
 
+        {/* Racheter */}
+        <BuyCard domain={domain} />
+
         {/* Suivi */}
         <div className="card" style={{ '--card-accent': 'var(--purple)' }}>
           <div className="card-title">
@@ -298,6 +301,63 @@ function PrBar({ value, max }) {
         }} />
       </span>
     </span>
+  )
+}
+
+function BuyCard({ domain }) {
+  const d = domain.domain
+  const isWebexpire = domain.source === 'webexpire'
+
+  const links = isWebexpire
+    ? [
+        { label: '⚡ Enchérir sur WebExpire', url: `https://www.webexpire.fr/encheres`, primary: true },
+        { label: 'OVH — commander le domaine', url: `https://www.ovhcloud.com/fr/domains/` },
+        { label: 'Gandi — vérifier disponibilité', url: `https://www.gandi.net/fr/domain/suggest?search=${d}` },
+      ]
+    : [
+        { label: '◈ Backorder sur OVH', url: `https://www.ovhcloud.com/fr/domains/`, primary: true },
+        { label: 'Gandi — vérifier disponibilité', url: `https://www.gandi.net/fr/domain/suggest?search=${d}` },
+        { label: 'GoDaddy — rechercher', url: `https://fr.godaddy.com/domainsearch/find?domainToCheck=${d}` },
+      ]
+
+  return (
+    <div className="card" style={{ '--card-accent': 'var(--cyan)' }}>
+      <div className="card-title">
+        <span className="card-title-icon">↗</span>
+        RACHETER CE DOMAINE
+        <span className="card-title-line" />
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {links.map(({ label, url, primary }) => (
+          <a
+            key={url}
+            href={url}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 10,
+              padding: '10px 14px',
+              background: primary ? 'rgba(0,245,196,0.1)' : 'var(--bg-2)',
+              border: `1px solid ${primary ? 'rgba(0,245,196,0.35)' : 'var(--border)'}`,
+              borderRadius: 6,
+              color: primary ? 'var(--cyan)' : 'var(--text-2)',
+              textDecoration: 'none',
+              fontSize: 13,
+              fontWeight: primary ? 600 : 400,
+              letterSpacing: '0.02em',
+              transition: 'background 0.15s, border-color 0.15s',
+            }}
+            onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--border-hi)'}
+            onMouseLeave={e => e.currentTarget.style.borderColor = primary ? 'rgba(0,245,196,0.35)' : 'var(--border)'}
+          >
+            <span style={{ flex: 1 }}>{label}</span>
+            <span style={{ fontSize: 11, opacity: 0.5 }}>↗</span>
+          </a>
+        ))}
+      </div>
+    </div>
   )
 }
 
