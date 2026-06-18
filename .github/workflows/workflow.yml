@@ -1,0 +1,68 @@
+name: Domain Hunter
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  # ── Scan des domaines (toutes les 15 min) ──────────────────────────────────
+  hunt:
+    name: Scan domaines
+    runs-on: ubuntu-latest
+    # Ne tourne pas sur simple push (seulement schedule + dispatch)
+    if: github.event_name != 'push'
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run domain hunter
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          OPENPAGERANK_API_KEY: ${{ secrets.OPENPAGERANK_API_KEY }}
+          INSEE_TOKEN: ${{ secrets.INSEE_TOKEN }}
+          INPI_TOKEN: ${{ secrets.INPI_TOKEN }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: python hunter.py
+
+  # ── Déploiement dashboard (à chaque push sur main) ────────────────────────
+  deploy-dashboard:
+    name: Deploy dashboard → Cloudflare Pages
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install & build dashboard
+        working-directory: dashboard
+        run: |
+          npm install
+          npm run build
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy dashboard/dist --project-name=domain-hunter --commit-dirty=true

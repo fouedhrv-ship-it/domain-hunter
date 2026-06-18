@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.env
+
+# Node / Dashboard
+dashboard/node_modules/
+dashboard/dist/
+
+# Secrets (use GitHub Secrets + env vars instead)
+config.json
+
+# OS
+.DS_Store

@@ -1,0 +1,21 @@
+{
+  "prix_minimum_alerte": 500,
+  "score_minimum_dashboard": 40,
+  "tlds_autorises": [".fr", ".com", ".net"],
+  "longueur_max_domaine": 15,
+  "rd_max_backorder": 300,
+  "wayback_snapshots_min": 10,
+  "telegram_token": "TON_TOKEN_ICI",
+  "telegram_chat_id": "TON_CHAT_ID_ICI",
+  "openpagerank_api_key": "TA_CLE_OPENPAGERANK_ICI",
+  "insee_token": "TON_TOKEN_BEARER_INSEE_ICI",
+  "inpi_token": "TON_TOKEN_INPI_ICI",
+  "supabase_url": "TON_URL_SUPABASE_ICI",
+  "supabase_service_key": "TA_CLE_SERVICE_ROLE_SUPABASE_ICI",
+  "thematiques_bonus": [
+    "immobilier", "maison", "sante", "sport", "cuisine",
+    "voyage", "auto", "mode", "entreprise", "animaux"
+  ],
+  "max_domaines_par_run": 350,
+  "rate_limit_delay_seconds": 1
+}
