@@ -105,7 +105,7 @@ def recherche_inverse_sirene() -> list[dict]:
     ]
     try:
         headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
-        url = "https://api.insee.fr/entreprises/sirene/V3/siren"
+        url = "https://api.insee.fr/api-sirene/3.11/siren"
         params = {
             "q": "categorieEntreprise:(ETI OR GE) AND etatAdministratifUniteLegale:A",
             "nombre": 200,
@@ -257,7 +257,7 @@ def insee_sirene(domain: str) -> dict:
     nom_recherche = nom_recherche.strip()
     try:
         headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
-        url = f"https://api.insee.fr/entreprises/sirene/V3/siret"
+        url = "https://api.insee.fr/api-sirene/3.11/siret"
         params = {"q": f"denominationUniteLegale:{nom_recherche}", "nombre": 3}
         r = requests.get(url, headers=headers, params=params, timeout=8)
         if r.status_code != 200:
