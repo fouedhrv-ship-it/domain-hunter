@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase.js'
 
@@ -64,6 +64,8 @@ export default function Domaines() {
   const [scoreMin, setScoreMin] = useState(0)
   const [scanning, setScanning] = useState(false)
   const [scanMsg, setScanMsg] = useState('')
+  const [polling, setPolling] = useState(false)
+  const pollRef = useRef(null)
   const navigate = useNavigate()
 
   const fetchDomaines = useCallback(async () => {
@@ -89,9 +91,21 @@ export default function Domaines() {
     await supabase.auth.signOut()
   }
 
+  function stopPolling() {
+    if (pollRef.current) {
+      clearInterval(pollRef.current)
+      pollRef.current = null
+    }
+    setPolling(false)
+  }
+
+  useEffect(() => () => stopPolling(), [])
+
   async function lancerScan() {
     setScanning(true)
     setScanMsg('')
+    stopPolling()
+
     try {
       const { data: { session } } = await supabase.auth.getSession()
       const res = await fetch(
@@ -106,8 +120,33 @@ export default function Domaines() {
       )
       const json = await res.json()
       if (json.ok) {
-        setScanMsg('Scan déclenché — résultats dans ~2 min')
-        setTimeout(() => { fetchDomaines(); setScanMsg('') }, 120000)
+        setScanMsg('Scan en cours — actualisation automatique…')
+        setPolling(true)
+
+        // Snapshot du dernier updated_at connu avant le scan
+        const lastTs = domaines[0]?.updated_at || null
+
+        let attempts = 0
+        pollRef.current = setInterval(async () => {
+          attempts++
+          // Récupère le domaine le plus récemment mis à jour
+          const { data } = await supabase
+            .from('domains_scanned')
+            .select('updated_at')
+            .order('updated_at', { ascending: false })
+            .limit(1)
+            .single()
+
+          const newTs = data?.updated_at || null
+          const hasNew = newTs && newTs !== lastTs
+
+          if (hasNew || attempts >= 20) {
+            stopPolling()
+            setScanMsg(hasNew ? '✓ Nouvelles données disponibles' : '')
+            fetchDomaines()
+            if (hasNew) setTimeout(() => setScanMsg(''), 3000)
+          }
+        }, 10000) // vérifie toutes les 10s
       } else {
         setScanMsg(`ERREUR : ${json.error || 'Inconnu'}`)
       }
@@ -157,8 +196,9 @@ export default function Domaines() {
       {/* ── Scan message ── */}
       {scanMsg && (
         <div className="scan-msg">
-          <span className="status-dot" style={{ background: scanMsg.startsWith('ERR') ? 'var(--red)' : 'var(--cyan)' }} />
+          <span className="status-dot" style={{ background: scanMsg.startsWith('ERR') ? 'var(--red)' : scanMsg.startsWith('✓') ? 'var(--green)' : 'var(--cyan)' }} />
           {scanMsg}
+          {polling && <span style={{ color: 'var(--text-3)', marginLeft: 8 }}>— vérif. toutes les 10s</span>}
         </div>
       )}
 
