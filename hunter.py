@@ -83,28 +83,62 @@ def nom_vers_domaine(denomination: str, ville: str = "") -> list[str]:
 
 # ── ÉTAPE 1 — Collecte ────────────────────────────────────────────────────────
 
-def scrape_expired_domains_net() -> list[str]:
-    """Scrape ExpiredDomains.net pour récupérer les domaines en pending delete."""
-    domaines = []
-    tld_params = {".fr": "6", ".com": "2", ".net": "3"}
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept-Language": "fr-FR,fr;q=0.9,en;q=0.8",
-    }
-    for tld, tld_id in tld_params.items():
+def generer_candidats_rdap() -> list[str]:
+    """
+    Génère ~200 candidats domaines depuis un dictionnaire de mots-clés
+    business français, puis vérifie via RDAP lesquels expirent dans < 90 jours.
+    Remplace ExpiredDomains.net (login requis) par une approche sans dépendance.
+    """
+    MOTS = [
+        "plombier", "electricien", "menuisier", "maconnerie", "peinture",
+        "toiture", "isolation", "renovation", "chauffage", "climatisation",
+        "avocat", "notaire", "comptable", "expertise", "conseil", "audit",
+        "immobilier", "agence", "location", "gestion", "patrimoine",
+        "medecin", "dentiste", "kinesitherapeute", "opticien", "pharmacie",
+        "restaurant", "traiteur", "boulangerie", "patisserie", "cuisine",
+        "transport", "demenagement", "livraison", "logistique",
+        "formation", "coaching", "consultant", "digital", "webdesign",
+        "assurance", "credit", "financement", "investissement", "bourse",
+        "auto", "garage", "carrosserie", "mecanique", "vehicule",
+        "piscine", "jardin", "paysagiste", "nettoyage", "pressing",
+        "coiffure", "esthetique", "massage", "bien-etre", "spa",
+        "informatique", "reparation", "depannage", "securite", "reseau",
+        "mariage", "evenement", "photographe", "videaste", "traiteur",
+        "solaire", "energie", "panneaux", "pompe-chaleur", "isolation",
+    ]
+    VILLES = ["paris", "lyon", "marseille", "bordeaux", "toulouse",
+              "nantes", "lille", "strasbourg", "nice", "rennes"]
+    TLDS = [".fr", ".com"]
+
+    candidats = []
+    # Mots simples
+    for mot in MOTS:
+        for tld in TLDS:
+            candidats.append(f"{mot}{tld}")
+    # Mot + ville (seulement .fr)
+    import random
+    for mot in random.sample(MOTS, min(20, len(MOTS))):
+        ville = random.choice(VILLES)
+        candidats.append(f"{mot}-{ville}.fr")
+
+    # Vérifier RDAP sur un sous-ensemble aléatoire (limite temps : 60 max)
+    random.shuffle(candidats)
+    candidats = candidats[:60]
+
+    domaines_trouvés = []
+    for domaine in candidats:
         try:
-            url = f"https://www.expireddomains.net/expired-domains/?fwhois=11&ftlds[]={tld_id}"
-            r = requests.get(url, headers=headers, timeout=15)
-            r.raise_for_status()
-            soup = BeautifulSoup(r.text, "lxml")
-            for link in soup.select("table.base1 td.field_domain a"):
-                domain = link.text.strip().lower()
-                if domain.endswith(tld):
-                    domaines.append(domain)
-            time.sleep(DELAY * 2)
-        except Exception as e:
-            log.warning(f"ExpiredDomains.net scraping échoué pour {tld}: {e}")
-    return domaines
+            rdap_data = rdap_lookup(domaine)
+            if rdap_data and rdap_data.get("expiry_date"):
+                jours = (rdap_data["expiry_date"] - datetime.now(timezone.utc)).days
+                if 0 < jours < 90:
+                    domaines_trouvés.append(domaine)
+            time.sleep(0.3)
+        except Exception:
+            pass
+
+    log.info(f"Candidats RDAP : {len(domaines_trouvés)} domaines expirant bientôt (sur {len(candidats)} testés)")
+    return domaines_trouvés
 
 def recherche_inverse_sirene() -> list[dict]:
     """Source 0 : part de SIRENE → cherche si leur domaine expire bientôt.
@@ -157,9 +191,9 @@ def recherche_inverse_sirene() -> list[dict]:
 
 def collecter_domaines() -> tuple[list[str], list[dict]]:
     """Retourne (domaines_bruts, domaines_sirene_enrichis)."""
-    domaines_bruts = scrape_expired_domains_net()
+    domaines_bruts = generer_candidats_rdap()
     domaines_sirene = recherche_inverse_sirene()
-    log.info(f"Collecte : {len(domaines_bruts)} bruts ExpiredDomains + {len(domaines_sirene)} via SIRENE inversé")
+    log.info(f"Collecte : {len(domaines_bruts)} candidats RDAP + {len(domaines_sirene)} via SIRENE inversé")
     return domaines_bruts, domaines_sirene
 
 # ── ÉTAPE 2 — Filtre rapide ───────────────────────────────────────────────────
