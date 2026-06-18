@@ -60,16 +60,60 @@ export default function Domaines() {
 
   useEffect(() => { fetchDomaines() }, [filtreStatut, filtreSirene, filtrePrudence, scoreMin])
 
+  const [scanning, setScanning] = useState(false)
+  const [scanMsg, setScanMsg] = useState('')
+
   async function logout() {
     await supabase.auth.signOut()
+  }
+
+  async function lancerScan() {
+    setScanning(true)
+    setScanMsg('')
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const res = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/trigger-scan`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${session.access_token}`,
+            'Content-Type': 'application/json',
+          },
+        }
+      )
+      const json = await res.json()
+      if (json.ok) {
+        setScanMsg('✅ Scan lancé — résultats dans ~2 min')
+        setTimeout(() => { fetchDomaines(); setScanMsg('') }, 120000)
+      } else {
+        setScanMsg(`❌ ${json.error || 'Erreur'}`)
+      }
+    } catch (e) {
+      setScanMsg(`❌ ${e.message}`)
+    } finally {
+      setScanning(false)
+    }
   }
 
   return (
     <div style={{ minHeight: '100dvh', background: '#0f0f0f', color: '#e5e5e5' }}>
       <header className="app-header">
         <span className="app-logo">🎯 Domain Hunter</span>
-        <button onClick={logout} className="logout-btn">Déconnexion</button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <button
+            onClick={lancerScan}
+            disabled={scanning}
+            className="scan-btn"
+          >
+            {scanning ? '⏳ Lancement…' : '▶ Lancer un scan'}
+          </button>
+          <button onClick={logout} className="logout-btn">Déconnexion</button>
+        </div>
       </header>
+      {scanMsg && (
+        <div className="scan-msg">{scanMsg}</div>
+      )}
 
       <div className="filters">
         <select className="filter-select" value={filtreStatut} onChange={e => setFiltreStatut(e.target.value)}>

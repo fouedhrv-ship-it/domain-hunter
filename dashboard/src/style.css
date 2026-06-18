@@ -79,6 +79,26 @@ input[type="email"], input[type="password"], input[type="number"], textarea, sel
   font-size: 12px;
   white-space: nowrap;
 }
+.scan-btn {
+  background: #16a34a;
+  color: #fff;
+  border: none;
+  padding: 7px 14px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  transition: opacity 0.15s;
+}
+.scan-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.scan-msg {
+  padding: 10px 20px;
+  font-size: 13px;
+  background: #111;
+  border-bottom: 1px solid #1e1e1e;
+  color: #aaa;
+}
 
 /* ── Filters ──────────────────────────────────────────────────── */
 .filters {
