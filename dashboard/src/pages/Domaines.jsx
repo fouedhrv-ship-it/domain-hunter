@@ -34,7 +34,14 @@ function ScoreMini({ score }) {
   )
 }
 
-function DropBadge({ jours_avant, jours_post }) {
+function DropBadge({ jours_avant, jours_post, source, delai }) {
+  if (source === 'webexpire') {
+    return (
+      <span className="drop-badge urgent" style={{ background: 'rgba(0,245,196,0.1)', color: 'var(--cyan)', borderColor: 'rgba(0,245,196,0.3)' }}>
+        ⚡ {delai || 'ENCHÈRE'}
+      </span>
+    )
+  }
   if (jours_avant != null && jours_avant > 0) {
     return <span className="drop-badge hot">▼ {jours_avant}j</span>
   }
@@ -347,7 +354,12 @@ export default function Domaines() {
                   </div>
 
                   <div className="col-drop">
-                    <DropBadge jours_avant={d.jours_avant_drop} jours_post={d.jours_post_drop} />
+                    <DropBadge
+                      jours_avant={d.jours_avant_drop}
+                      jours_post={d.jours_post_drop}
+                      source={d.source}
+                      delai={d.delai_enchère}
+                    />
                   </div>
 
                   <div className="col-statut">

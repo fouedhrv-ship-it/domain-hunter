@@ -958,38 +958,42 @@ def enrichir_domaine(domain: str, pre_enriched: dict = None) -> Optional[dict]:
     if pre_enriched:
         domain_data.update(pre_enriched)
 
-    # A — RDAP
-    rdap = rdap_lookup(domain)
-    if rdap:
-        rdap_statuses = [s.lower() for s in (rdap.get("status") or [])]
-        expiry = rdap.get("expiry_date")
+    # A — RDAP (ignoré pour WebExpire : le dropcatcher a déjà re-enregistré → 364j faux)
+    if domain_data.get("source") == "webexpire":
+        # Domaine déjà tombé + en enchère sur WebExpire : jours_post_drop = 0 (vient de tomber)
+        domain_data["days_until_drop"] = 0
+        domain_data["jours_avant_drop"] = 0
+        domain_data["jours_post_drop"] = 0
+    else:
+        rdap = rdap_lookup(domain)
+        if rdap:
+            rdap_statuses = [s.lower() for s in (rdap.get("status") or [])]
+            expiry = rdap.get("expiry_date")
 
-        if rdap.get("status") == "available":
-            # 404 RDAP = domaine déjà tombé et disponible
-            domain_data["days_until_drop"] = 0
-            domain_data["jours_avant_drop"] = 0
-            domain_data["jours_post_drop"] = 0
-        elif expiry:
-            days = (expiry - datetime.now(timezone.utc)).days
-            domain_data["days_until_drop"] = days
-            domain_data["jours_avant_drop"] = days if days > 0 else 0
-            domain_data["jours_post_drop"] = abs(days) if days <= 0 else 0
-        elif any(s in rdap_statuses for s in ["pendingdelete", "pending delete", "redemptionperiod"]):
-            # Pending delete sans date = drop imminent (≤5j)
-            domain_data["days_until_drop"] = 3
-            domain_data["jours_avant_drop"] = 3
-            domain_data["jours_post_drop"] = 0
+            if rdap.get("status") == "available":
+                domain_data["days_until_drop"] = 0
+                domain_data["jours_avant_drop"] = 0
+                domain_data["jours_post_drop"] = 0
+            elif expiry:
+                days = (expiry - datetime.now(timezone.utc)).days
+                domain_data["days_until_drop"] = days
+                domain_data["jours_avant_drop"] = days if days > 0 else 0
+                domain_data["jours_post_drop"] = abs(days) if days <= 0 else 0
+            elif any(s in rdap_statuses for s in ["pendingdelete", "pending delete", "redemptionperiod"]):
+                domain_data["days_until_drop"] = 3
+                domain_data["jours_avant_drop"] = 3
+                domain_data["jours_post_drop"] = 0
 
-        domain_data["registrar"] = rdap.get("registrar", "")
+            domain_data["registrar"] = rdap.get("registrar", "")
 
-    # Fallback : date de drop scrapée depuis EDN si RDAP n'a rien donné
-    if domain_data.get("jours_avant_drop") is None and domain_data.get("jours_post_drop") is None:
-        drop_date_edn = domain_data.get("drop_date_edn")
-        if drop_date_edn:
-            days_edn = (drop_date_edn - datetime.now(timezone.utc)).days
-            domain_data["days_until_drop"] = days_edn
-            domain_data["jours_avant_drop"] = days_edn if days_edn > 0 else 0
-            domain_data["jours_post_drop"] = abs(days_edn) if days_edn <= 0 else 0
+        # Fallback : date de drop scrapée depuis EDN si RDAP n'a rien donné
+        if domain_data.get("jours_avant_drop") is None and domain_data.get("jours_post_drop") is None:
+            drop_date_edn = domain_data.get("drop_date_edn")
+            if drop_date_edn:
+                days_edn = (drop_date_edn - datetime.now(timezone.utc)).days
+                domain_data["days_until_drop"] = days_edn
+                domain_data["jours_avant_drop"] = days_edn if days_edn > 0 else 0
+                domain_data["jours_post_drop"] = abs(days_edn) if days_edn <= 0 else 0
 
     time.sleep(DELAY)
 
