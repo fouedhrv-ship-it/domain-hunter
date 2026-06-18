@@ -93,33 +93,32 @@ def scrape_expired_domains_net() -> list[str]:
     return domaines
 
 def recherche_inverse_sirene() -> list[dict]:
-    """Source 0 : part de SIRENE → cherche si leur domaine expire bientôt."""
-    token = CONFIG.get("insee_token", "")
-    if not token or token.startswith("TON_"):
-        return []
-
+    """Source 0 : part de SIRENE → cherche si leur domaine expire bientôt.
+    Utilise recherche-entreprises.api.gouv.fr — gratuit, sans clé API.
+    """
     resultats = []
-    secteurs_prioritaires = [
-        "FINANCE", "ASSURANCE", "SANTE", "IMMOBILIER", "ENERGIE",
-        "JURIDIQUE", "INFORMATIQUE", "COMMERCE"
+    # Cibles prioritaires : ETI/GE dans des secteurs à fort CPL
+    requetes = [
+        "categorie_entreprise:ETI activite_principale:64",   # finance
+        "categorie_entreprise:ETI activite_principale:86",   # santé
+        "categorie_entreprise:ETI activite_principale:68",   # immobilier
+        "categorie_entreprise:GE activite_principale:35",    # énergie
+        "categorie_entreprise:ETI activite_principale:62",   # informatique
     ]
     try:
-        headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
-        url = "https://api.insee.fr/api-sirene/3.11/siren"
-        params = {
-            "q": "categorieEntreprise:(ETI OR GE) AND etatAdministratifUniteLegale:A",
-            "nombre": 200,
-            "champs": "denominationUniteLegale,categorieEntreprise,communeSiegeUniteLegale"
-        }
-        r = requests.get(url, headers=headers, params=params, timeout=10)
-        if r.status_code == 200:
+        for q in requetes[:3]:  # limiter à 3 requêtes par run (quota temps)
+            url = "https://recherche-entreprises.api.gouv.fr/search"
+            params = {"q": q, "per_page": 25, "page": 1}
+            r = requests.get(url, params=params, timeout=10)
+            if r.status_code != 200:
+                continue
             data = r.json()
-            entreprises = data.get("unitesLegales", [])
-            for ent in entreprises:
-                denomination = ent.get("periodesUniteLegale", [{}])[0].get("denominationUniteLegale", "")
-                categorie = ent.get("periodesUniteLegale", [{}])[0].get("categorieEntreprise", "")
-                commune = ent.get("adresseEtablissementSiege", {}).get("libelleCommuneEtablissement", "")
-                if not denomination:
+            for ent in data.get("results", []):
+                denomination = ent.get("nom_raison_sociale", "") or ent.get("nom_complet", "")
+                categorie = ent.get("categorie_entreprise", "")
+                commune = (ent.get("siege") or {}).get("libelle_commune", "")
+                etat = (ent.get("siege") or {}).get("etat_administratif", "")
+                if not denomination or etat != "A":
                     continue
                 variantes = nom_vers_domaine(denomination, commune)
                 for domaine in variantes:
@@ -248,42 +247,32 @@ def openpagerank(domain: str) -> dict:
 # ── ÉTAPE 3D — INSEE SIRENE ───────────────────────────────────────────────────
 
 def insee_sirene(domain: str) -> dict:
-    token = CONFIG.get("insee_token", "")
-    if not token or token.startswith("TON_"):
-        return {"sirene_actif": False, "sirene_nom_correspond": False}
-    nom_recherche = domain.replace("-", " ")
+    """Vérifie si une entreprise française active correspond à ce domaine.
+    Utilise recherche-entreprises.api.gouv.fr — gratuit, sans clé API.
+    """
+    nom_recherche = domain
     for ext in [".fr", ".com", ".net"]:
         nom_recherche = nom_recherche.replace(ext, "")
-    nom_recherche = nom_recherche.strip()
+    nom_recherche = nom_recherche.replace("-", " ").strip()
     try:
-        headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
-        url = "https://api.insee.fr/api-sirene/3.11/siret"
-        params = {"q": f"denominationUniteLegale:{nom_recherche}", "nombre": 3}
-        r = requests.get(url, headers=headers, params=params, timeout=8)
+        url = "https://recherche-entreprises.api.gouv.fr/search"
+        params = {"q": nom_recherche, "per_page": 5}
+        r = requests.get(url, params=params, timeout=8)
         if r.status_code != 200:
             return {"sirene_actif": False, "sirene_nom_correspond": False}
         data = r.json()
-        etablissements = data.get("etablissements", [])
-        if not etablissements:
-            return {"sirene_actif": False, "sirene_nom_correspond": False}
-        meilleur = None
-        for etab in etablissements:
-            ul = etab.get("uniteLegale", {})
-            periode = (ul.get("periodesUniteLegale") or [{}])[0]
-            denomination = periode.get("denominationUniteLegale", "")
-            etat = periode.get("etatAdministratifUniteLegale", "")
-            if etat != "A":
+        for ent in data.get("results", []):
+            denomination = ent.get("nom_raison_sociale", "") or ent.get("nom_complet", "")
+            etat = (ent.get("siege") or {}).get("etat_administratif", "")
+            if etat != "A" or not denomination:
                 continue
             if normalise(nom_recherche) in normalise(denomination) or normalise(denomination) in normalise(nom_recherche):
-                meilleur = {
+                return {
                     "sirene_actif": True,
                     "sirene_nom_correspond": True,
                     "sirene_denomination": denomination,
-                    "sirene_categorie_entreprise": periode.get("categorieEntreprise", ""),
+                    "sirene_categorie_entreprise": ent.get("categorie_entreprise", ""),
                 }
-                break
-        if meilleur:
-            return meilleur
         return {"sirene_actif": False, "sirene_nom_correspond": False}
     except Exception as e:
         log.debug(f"SIRENE {domain}: {e}")
