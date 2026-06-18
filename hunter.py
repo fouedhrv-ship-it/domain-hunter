@@ -1064,7 +1064,11 @@ def run():
             continue
         rd = d.get("ref_domains", 0)
         if filtrer(domain, rd):
-            pipeline.append((domain, {"ref_domains": rd, "wayback_snapshots": d.get("wayback_snapshots", 0)}))
+            pipeline.append((domain, {
+                "ref_domains": rd,
+                "wayback_snapshots": d.get("wayback_snapshots", 0),
+                "source": d.get("source", ""),
+            }))
             domaines_vus.add(domain)
 
     pipeline = pipeline[:MAX_DOMAINES]
