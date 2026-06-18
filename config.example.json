@@ -16,6 +16,8 @@
     "immobilier", "maison", "sante", "sport", "cuisine",
     "voyage", "auto", "mode", "entreprise", "animaux"
   ],
-  "max_domaines_par_run": 350,
-  "rate_limit_delay_seconds": 1
+  "max_domaines_par_run": 20,
+  "rate_limit_delay_seconds": 0.5,
+  "edn_email": "TON_EMAIL_EXPIREDDOMAINS_ICI",
+  "edn_password": "TON_MOT_DE_PASSE_ICI"
 }
