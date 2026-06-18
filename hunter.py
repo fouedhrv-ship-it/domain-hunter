@@ -1047,6 +1047,21 @@ def run():
             if not domain_data:
                 continue
 
+            # Filtre temporel post-RDAP :
+            # - WebExpire → toujours garder (déjà en enchère, imminents)
+            # - Sinon : drop dans ≤ 60j OU tombé depuis ≤ 90j
+            # - Si pas de date RDAP → garder (EDN liste déjà des "expired")
+            source = domain_data.get("source", "")
+            days_until = domain_data.get("days_until_drop")
+            jours_post = domain_data.get("jours_post_drop", 0) or 0
+            if source != "webexpire" and days_until is not None:
+                if days_until > 60 and jours_post == 0:
+                    log.debug(f"Ignoré {domain}: re-enregistré ou trop loin ({days_until}j)")
+                    continue
+                if jours_post > 90:
+                    log.debug(f"Ignoré {domain}: tombé il y a {jours_post}j > 90j")
+                    continue
+
             score, flag_prudence = calculate_score(domain_data)
             domain_data["score"] = score
             domain_data["flag_prudence"] = flag_prudence
