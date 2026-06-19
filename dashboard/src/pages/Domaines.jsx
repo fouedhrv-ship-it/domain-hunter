@@ -61,22 +61,36 @@ function DropBadge({ jours_avant, jours_post, source, delai, deja_repris }) {
 }
 
 function EnchereCell({ d }) {
-  const enEnchere = d.source === 'webexpire' && d.webexpire_lien
-  if (!enEnchere) {
-    return <span style={{ color: 'var(--text-3)', fontSize: 12 }}>❌ Non en enchère</span>
+  const enEnchereWebexpire = d.source === 'webexpire' && d.webexpire_lien
+  if (enEnchereWebexpire) {
+    return (
+      <a
+        href={d.webexpire_lien}
+        target="_blank"
+        rel="noopener noreferrer"
+        onClick={e => e.stopPropagation()}
+        style={{ display: 'block', fontSize: 12, color: 'var(--cyan)' }}
+      >
+        ↗ {d.webexpire_prix_actuel != null ? `${d.webexpire_prix_actuel}€` : 'enchère'}
+        {d.badge_surpaye && <span className="badge-surpaye" style={{ marginLeft: 6 }}>SURPAYÉ</span>}
+      </a>
+    )
   }
-  return (
-    <a
-      href={d.webexpire_lien}
-      target="_blank"
-      rel="noopener noreferrer"
-      onClick={e => e.stopPropagation()}
-      style={{ display: 'block', fontSize: 12, color: 'var(--cyan)' }}
-    >
-      ↗ {d.webexpire_prix_actuel != null ? `${d.webexpire_prix_actuel}€` : 'enchère'}
-      {d.badge_surpaye && <span className="badge-surpaye" style={{ marginLeft: 6 }}>SURPAYÉ</span>}
-    </a>
-  )
+  if (d.catchdoms_purchase_url) {
+    return (
+      <a
+        href={d.catchdoms_purchase_url}
+        target="_blank"
+        rel="noopener noreferrer"
+        onClick={e => e.stopPropagation()}
+        style={{ display: 'block', fontSize: 12, color: 'var(--cyan)' }}
+      >
+        ↗ {d.catchdoms_purchase_platform || 'CatchDoms'}
+        {d.catchdoms_max_bid != null && ` · ${d.catchdoms_max_bid}€`}
+      </a>
+    )
+  }
+  return <span style={{ color: 'var(--text-3)', fontSize: 12 }}>❌ Non disponible</span>
 }
 
 function PresenceCell({ d }) {

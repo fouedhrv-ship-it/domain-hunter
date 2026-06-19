@@ -145,36 +145,33 @@ export default function DomainDetail() {
             )}
           </div>
 
-          {/* Enchère WebExpire — commun, affiché si une enchère existe */}
-          <div className="card" style={{ '--card-accent': enEnchere ? 'var(--cyan)' : 'var(--text-3)' }}>
+          {/* Disponibilité — WebExpire, ou la plateforme où le domaine est réellement listé */}
+          <div className="card" style={{ '--card-accent': (enEnchere || domain.catchdoms_purchase_url) ? 'var(--cyan)' : 'var(--text-3)' }}>
             <div className="card-title">
               <span className="card-title-icon">⚡</span>
-              ENCHÈRE WEBEXPIRE
+              DISPONIBILITÉ
               <span className="card-title-line" />
             </div>
             {enEnchere ? (
               <>
+                <DataRow label="Plateforme" value="WebExpire" />
                 <DataRow label="Prix actuel" value={domain.webexpire_prix_actuel != null ? `${domain.webexpire_prix_actuel}€` : '—'} />
                 <DataRow label="Délai" value={domain.delai_enchere || '—'} />
                 <a className="ext-link" href={domain.webexpire_lien} target="_blank" rel="noopener noreferrer">
                   ↗ Voir l'enchère sur WebExpire
                 </a>
               </>
-            ) : domain.source === 'catchdoms' ? (
+            ) : domain.catchdoms_purchase_url ? (
               <>
-                <div style={{ color: 'var(--text-3)', fontSize: 13, marginBottom: 10 }}>
-                  ✕ Pas d'enchère active sur WebExpire — listé via CatchDoms
-                </div>
+                <DataRow label="Plateforme" value={domain.catchdoms_purchase_platform || 'CatchDoms'} />
                 <DataRow label="Score CatchDoms" value={domain.catchdoms_score ?? '—'} />
                 <DataRow label="Enchère max" value={domain.catchdoms_max_bid ? `${domain.catchdoms_max_bid}€` : '—'} />
-                {domain.catchdoms_purchase_url && (
-                  <a className="ext-link" href={domain.catchdoms_purchase_url} target="_blank" rel="noopener noreferrer">
-                    ↗ Voir sur {domain.catchdoms_purchase_platform || 'CatchDoms'}
-                  </a>
-                )}
+                <a className="ext-link" href={domain.catchdoms_purchase_url} target="_blank" rel="noopener noreferrer">
+                  ↗ Voir sur {domain.catchdoms_purchase_platform || 'CatchDoms'}
+                </a>
               </>
             ) : (
-              <div style={{ color: 'var(--text-3)', fontSize: 13 }}>✕ Non listé sur WebExpire</div>
+              <div style={{ color: 'var(--text-3)', fontSize: 13 }}>✕ Aucune plateforme d'achat identifiée</div>
             )}
           </div>
 
@@ -422,18 +419,28 @@ function DataRow({ label, value }) {
 function BuyCard({ domain }) {
   const d = domain.domain
   const isWebexpire = domain.source === 'webexpire' && domain.webexpire_lien
+  const platformeAchat = domain.catchdoms_purchase_url
 
-  const links = isWebexpire
-    ? [
-        { label: '⚡ Enchérir sur WebExpire', url: domain.webexpire_lien, primary: true },
-        { label: 'OVH — commander le domaine', url: `https://www.ovhcloud.com/fr/domains/` },
-        { label: 'Gandi — vérifier disponibilité', url: `https://www.gandi.net/fr/domain/suggest?search=${d}` },
-      ]
-    : [
-        { label: '◈ Backorder sur OVH', url: `https://www.ovhcloud.com/fr/domains/`, primary: true },
-        { label: 'Gandi — vérifier disponibilité', url: `https://www.gandi.net/fr/domain/suggest?search=${d}` },
-        { label: 'GoDaddy — rechercher', url: `https://fr.godaddy.com/domainsearch/find?domainToCheck=${d}` },
-      ]
+  let links
+  if (isWebexpire) {
+    links = [
+      { label: '⚡ Enchérir sur WebExpire', url: domain.webexpire_lien, primary: true },
+      { label: 'OVH — commander le domaine', url: `https://www.ovhcloud.com/fr/domains/` },
+      { label: 'Gandi — vérifier disponibilité', url: `https://www.gandi.net/fr/domain/suggest?search=${d}` },
+    ]
+  } else if (platformeAchat) {
+    links = [
+      { label: `⚡ Voir sur ${domain.catchdoms_purchase_platform || 'CatchDoms'}`, url: platformeAchat, primary: true },
+      { label: 'OVH — commander le domaine', url: `https://www.ovhcloud.com/fr/domains/` },
+      { label: 'Gandi — vérifier disponibilité', url: `https://www.gandi.net/fr/domain/suggest?search=${d}` },
+    ]
+  } else {
+    links = [
+      { label: '◈ Backorder sur OVH', url: `https://www.ovhcloud.com/fr/domains/`, primary: true },
+      { label: 'Gandi — vérifier disponibilité', url: `https://www.gandi.net/fr/domain/suggest?search=${d}` },
+      { label: 'GoDaddy — rechercher', url: `https://fr.godaddy.com/domainsearch/find?domainToCheck=${d}` },
+    ]
+  }
 
   return (
     <div className="card" style={{ '--card-accent': 'var(--cyan)' }}>
