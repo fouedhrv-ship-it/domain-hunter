@@ -858,45 +858,65 @@ def calculate_score(domain_data: dict) -> tuple[int, bool]:
 
 # ── ÉTAPE 5 — Estimation prix ─────────────────────────────────────────────────
 
-def estimate_recovery_price(categorie_entreprise: str) -> tuple[int, int]:
+# Logique A (Filtre 2 — revente à l'ancien propriétaire) : Namebio/Majestic/INPI →
+# fourchette basée sur la taille de l'entreprise, ajustée par le Trust Flow réel.
+def estimate_recovery_price(categorie_entreprise: str, trust_flow: int = 0) -> tuple[int, int]:
     fourchettes = {
         "GE": (1500, 5000),
         "ETI": (800, 2500),
         "PME": (500, 1200),
     }
-    return fourchettes.get(categorie_entreprise, (300, 800))
+    prix_min, prix_max = fourchettes.get(categorie_entreprise, (300, 800))
+    if trust_flow >= 30:
+        return (int(prix_min * 1.3), int(prix_max * 1.3))
+    if trust_flow >= 20:
+        return (int(prix_min * 1.15), int(prix_max * 1.15))
+    return (prix_min, prix_max)
 
-def estimate_sale_price(page_rank: int, ref_domains: int) -> tuple[int, int]:
-    if page_rank >= 5:
-        price_pr = 200
-    elif page_rank >= 3:
-        price_pr = 100
-    elif page_rank >= 1:
-        price_pr = 60
-    else:
-        price_pr = 34
+# Logique B (Filtre 1 — SEO/vente de liens) : grille de seuils TF/DA/RD de l'étude
+# Mathieu (14 098 sites .fr) — pas de trafic SEMrush disponible, on s'appuie sur les
+# 3 métriques réellement collectées (Trust Flow, Domain Authority, Referring Domains).
+def estimate_sale_price_seo(domain_data: dict) -> tuple[int, int]:
+    tf = domain_data.get("trust_flow") or 0
+    da = domain_data.get("domain_authority") or 0
+    rd = domain_data.get("ref_domains") or 0
 
-    if ref_domains >= 200:
-        price_rd = 133
-    elif ref_domains >= 100:
-        price_rd = 60
-    else:
-        price_rd = 34
+    fourchettes = []
+    if tf >= 30:
+        fourchettes.append((100, 200))
+    elif tf >= 20:
+        fourchettes.append((50, 90))
 
-    estimated = max(price_pr, price_rd)
-    return (estimated, int(estimated * 1.5))
+    if da >= 30:
+        fourchettes.append((100, 150))
+    elif da >= 20:
+        fourchettes.append((50, 90))
+
+    if rd >= 200:
+        fourchettes.append((100, 133))
+    elif rd >= 50:
+        fourchettes.append((60, 100))
+    elif rd >= 3:
+        fourchettes.append((34, 60))
+
+    if not fourchettes:
+        return (29, 49)
+    return max(fourchettes, key=lambda f: f[0])
 
 def estimate_final_price(domain_data: dict) -> tuple[int, int]:
     sirene_ok = domain_data.get("sirene_actif") and domain_data.get("sirene_nom_correspond")
-    fourchette_seo = estimate_sale_price(
-        domain_data.get("page_rank", 0),
-        domain_data.get("ref_domains", 0)
-    )
     if sirene_ok:
-        fourchette_sirene = estimate_recovery_price(domain_data.get("sirene_categorie_entreprise", ""))
+        fourchette = estimate_recovery_price(
+            domain_data.get("sirene_categorie_entreprise", ""),
+            domain_data.get("trust_flow") or 0
+        )
         if domain_data.get("has_autre_site"):
-            fourchette_sirene = (int(fourchette_sirene[0] * 0.7), int(fourchette_sirene[1] * 0.7))
-        return max(fourchette_sirene, fourchette_seo, key=lambda f: f[0])
+            fourchette = (int(fourchette[0] * 0.7), int(fourchette[1] * 0.7))
+        return fourchette
+
+    fourchette_seo = estimate_sale_price_seo(domain_data)
+    prix_actuel = domain_data.get("webexpire_prix_actuel")
+    domain_data["badge_surpaye"] = bool(prix_actuel and prix_actuel > fourchette_seo[1])
     return fourchette_seo
 
 # ── ÉTAPE 6 — Alerte Telegram ─────────────────────────────────────────────────
@@ -1035,6 +1055,8 @@ def send_telegram_alert_seo(domain_data: dict, score: int, fourchette_prix: tupl
         titre = "🔥 *DOMAINE SEO EN ENCHÈRE SUR WEBEXPIRE*"
         ligne_enchere = "📈 Enchère sur WebExpire : ✅ Oui"
         ligne_prix = f"💰 Prix actuel WebExpire : {prix_actuel:.2f}€"
+        if domain_data.get("badge_surpaye"):
+            ligne_prix += f"\n🚩 *SURPAYÉ* — valeur réelle estimée à {prix_max}€ max"
         action = f"→ [Voir l'enchère sur WebExpire]({lien_webexpire})"
     else:
         titre = "🎯 *DOMAINE SEO DISPONIBLE*"
