@@ -1231,11 +1231,19 @@ def enrichir_domaine(domain: str, pre_enriched: dict = None) -> Optional[dict]:
             domain_data["days_until_drop"] = 0
             domain_data["jours_avant_drop"] = 0
             domain_data["jours_post_drop"] = 0
-    elif domain_data.get("source") in ("webexpire", "catchdoms"):
-        # Domaine déjà tombé + en enchère : jours_post_drop = 0 (vient de tomber)
+    elif domain_data.get("source") == "webexpire":
+        # WebExpire ne liste que des enchères déjà en cours : le drop a forcément
+        # déjà eu lieu, J+0 est donc une donnée réelle ("vient de tomber").
         domain_data["days_until_drop"] = 0
         domain_data["jours_avant_drop"] = 0
         domain_data["jours_post_drop"] = 0
+    elif domain_data.get("source") == "catchdoms":
+        # CatchDoms sans whois exploitable : le timing est réellement inconnu.
+        # On ne fake pas un J+0 qui afficherait "vient de tomber" à tort sur le
+        # dashboard/Telegram pour un domaine dont on ne connaît pas l'état.
+        domain_data["days_until_drop"] = None
+        domain_data["jours_avant_drop"] = None
+        domain_data["jours_post_drop"] = None
     else:
         rdap = rdap_lookup(domain)
         if rdap:
@@ -1488,6 +1496,22 @@ def run_edn():
             domain_data = enrichir_domaine(domain, pre_enriched)
             if not domain_data:
                 continue
+
+            # EDN liste des domaines tombés depuis des mois — sans ce filtre, une
+            # correspondance SIRENE sur un drop très ancien (J+300...) atterrissait
+            # quand même dans la revente. On garde uniquement les cas récents/imminents,
+            # sauf si le domaine a été repris par un tiers (recours PARL EXPERT, garder
+            # quel que soit l'âge — c'est justement l'opportunité de négociation).
+            deja_repris = domain_data.get("deja_reenregistre_tiers")
+            jours_post = domain_data.get("jours_post_drop", 0) or 0
+            days_until = domain_data.get("days_until_drop")
+            if not deja_repris and days_until is not None:
+                if days_until > 60 and jours_post == 0:
+                    log.debug(f"Ignoré EDN {domain}: re-enregistré ou trop loin ({days_until}j)")
+                    continue
+                if jours_post > 90:
+                    log.debug(f"Ignoré EDN {domain}: tombé il y a {jours_post}j > 90j")
+                    continue
 
             score, flag_prudence = calculate_score(domain_data)
             domain_data["score"] = score
