@@ -10,7 +10,7 @@ import time
 import re
 import unicodedata
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import requests
@@ -1000,6 +1000,27 @@ def domaine_deja_alerte(domain: str) -> bool:
     except Exception:
         return False
 
+def domaines_existants_recents(jours: int = 1) -> set[str]:
+    """Liste les domaines déjà en base (scannés par CatchDoms/WebExpire) sur les N derniers jours.
+    Sert à éviter de réenrichir un domaine déjà couvert par les sources temps réel."""
+    base_url = CONFIG.get("supabase_url", "")
+    if not base_url or base_url.startswith("TON_"):
+        return set()
+    key = CONFIG.get("supabase_service_key", "")
+    try:
+        depuis = (datetime.now(timezone.utc) - timedelta(days=jours)).isoformat()
+        r = requests.get(
+            f"{base_url}/rest/v1/domains_scanned",
+            params={"date_scan": f"gte.{depuis}", "select": "domain"},
+            headers={"apikey": key, "Authorization": f"Bearer {key}"},
+            timeout=15,
+        )
+        r.raise_for_status()
+        return {row["domain"] for row in r.json() if row.get("domain")}
+    except Exception as e:
+        log.warning(f"Supabase lecture domaines récents: {e}")
+        return set()
+
 def marquer_alerte_envoyee(domain: str) -> None:
     base_url = CONFIG.get("supabase_url", "")
     if not base_url or base_url.startswith("TON_"):
@@ -1212,5 +1233,81 @@ def run():
         f"→ {stats['en_base']} écrits en base → {stats['alertes']} alertes Telegram ==="
     )
 
+def run_edn():
+    """Job séparé, déclenché 2x/jour seulement (pas toutes les 15 min comme le scan
+    principal) — pour rester sous le radar d'EDN après 2 bannissements de compte.
+    Scrape EDN, ignore tout domaine déjà connu via CatchDoms/WebExpire dans les
+    dernières 24h, et n'enrichit que les nouveaux."""
+    log.info("=== Domain Hunter — EDN (2x/jour) démarré ===")
+    stats = {"collectes": 0, "deja_connus": 0, "nouveaux": 0, "en_base": 0, "alertes": 0}
+
+    edn = scraper_expireddomains_net()
+    stats["collectes"] = len(edn)
+
+    existants = domaines_existants_recents(jours=1)
+    prix_seuil = CONFIG.get("prix_minimum_alerte", 500)
+
+    vus = set()
+    traites = 0
+    for d in edn:
+        domain = d.get("domain", "")
+        if not domain or domain in vus:
+            continue
+        vus.add(domain)
+
+        if domain in existants:
+            stats["deja_connus"] += 1
+            continue
+
+        rd = d.get("ref_domains", 0)
+        if not filtrer(domain, rd):
+            continue
+        stats["nouveaux"] += 1
+
+        if traites >= MAX_DOMAINES:
+            continue
+
+        try:
+            pre_enriched = {
+                "ref_domains": rd,
+                "wayback_snapshots": d.get("wayback_snapshots", 0),
+                "source": d.get("source") or "expireddomains",
+                "drop_date_edn": d.get("drop_date_edn"),
+            }
+            domain_data = enrichir_domaine(domain, pre_enriched)
+            if not domain_data:
+                continue
+
+            score, flag_prudence = calculate_score(domain_data)
+            domain_data["score"] = score
+            domain_data["flag_prudence"] = flag_prudence
+
+            fourchette = estimate_final_price(domain_data)
+            domain_data["prix_estime_min"], domain_data["prix_estime_max"] = fourchette
+
+            upsert_domain(domain_data)
+            stats["en_base"] += 1
+            traites += 1
+
+            if fourchette[0] >= prix_seuil and not domaine_deja_alerte(domain):
+                try:
+                    send_telegram_alert(domain_data, score, fourchette)
+                    marquer_alerte_envoyee(domain)
+                    stats["alertes"] += 1
+                except Exception:
+                    pass
+        except Exception as e:
+            log.error(f"Erreur pipeline EDN {domain}: {e}")
+
+    log.info(
+        f"=== Fin EDN : {stats['collectes']} collectés → {stats['deja_connus']} déjà connus "
+        f"(CatchDoms/WebExpire) → {stats['nouveaux']} nouveaux candidats → {stats['en_base']} "
+        f"écrits en base → {stats['alertes']} alertes Telegram ==="
+    )
+
 if __name__ == "__main__":
-    run()
+    import sys
+    if len(sys.argv) > 1 and sys.argv[1] == "edn":
+        run_edn()
+    else:
+        run()
