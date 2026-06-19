@@ -905,21 +905,6 @@ def send_telegram_alert(domain_data: dict, score: int, fourchette_prix: tuple) -
         # Plus de backorder possible — c'est une opportunité de négociation avec le
         # nouveau titulaire, ou un recours légal (procédure PARL EXPERT de l'AFNIC,
         # ~250€, pour réclamer un .fr qui porte atteinte au nom d'une entreprise active).
-        email_template = f"""---
-✉️ *TEMPLATE EMAIL — à adapter :*
-
-Objet : Votre ancien nom de domaine {domain_name}
-
-Bonjour {dirigeant},
-
-Je me permets de vous signaler que le nom de domaine {domain_name}, qui correspondait à votre entreprise {sirene}, n'a pas été renouvelé et a été repris par un tiers \\(registrar actuel : {registrar}\\).
-
-Deux options s'offrent à vous : négocier son rachat directement avec le nouveau titulaire, ou engager la procédure PARL EXPERT auprès de l'AFNIC \\(frais fixes d'environ 250€\\) si ce nom porte atteinte aux droits de votre entreprise \\(nom commercial, marque\\). Je peux vous accompagner sur l'une ou l'autre de ces démarches.
-
-Cordialement,
-[Votre nom]
----"""
-
         message = f"""🟠 *DOMAINE DÉJÀ REPRIS PAR UN TIERS — Opportunité {prix_min}–{prix_max}€*
 
 🌐 Domaine : `{domain_name}`
@@ -935,27 +920,8 @@ Cordialement,
 📌 *Recours possibles :*
 → Négocier le rachat directement avec le nouveau titulaire \\(via WHOIS/registrar\\)
 → Procédure PARL EXPERT \\(AFNIC, ~250€\\) si atteinte aux droits de l'entreprise — voir afnic\\.fr
-→ [Fiche SIRENE]({f"https://annuaire-entreprises.data.gouv.fr/rechercher?terme={sirene}"})
-
-{email_template}"""
+→ [Fiche SIRENE]({f"https://annuaire-entreprises.data.gouv.fr/rechercher?terme={sirene}"})"""
     else:
-        email_template = f"""---
-✉️ *TEMPLATE EMAIL — à adapter :*
-
-Objet : Votre nom de domaine {domain_name}
-
-Bonjour {dirigeant},
-
-Je me permets de vous contacter au sujet du nom de domaine {domain_name}, qui correspond à votre entreprise {sirene}.
-
-Ce domaine vient de devenir disponible suite à sa non-reconduction. Je l'ai récemment acquis et souhaite vous proposer en priorité de le récupérer avant qu'il soit utilisé par un tiers.
-
-Je vous propose de vous le céder pour {prix_min}€ \\(virement bancaire ou PayPal\\), transfert immédiat une fois le paiement reçu.
-
-Cordialement,
-[Votre nom]
----"""
-
         message = f"""{"🟠" if flag else "🎯"} *DOMAINE — Revente estimée {prix_min}–{prix_max}€*
 
 🌐 Domaine : `{domain_name}`
@@ -974,8 +940,6 @@ Cordialement,
 → [Racheter sur OVH](https://www.ovhcloud.com/fr/domains/)
 → [Rechercher sur Gandi](https://www.gandi.net/fr/domain/suggest?search={domain_name})
 → [Fiche SIRENE](https://annuaire-entreprises.data.gouv.fr/rechercher?terme={sirene})
-
-{email_template}
 
 📎 Max 2 plateformes de backorder par domaine."""
 
