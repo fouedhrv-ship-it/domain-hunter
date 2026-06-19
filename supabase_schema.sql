@@ -50,7 +50,11 @@ create table if not exists domains_scanned (
   webexpire_lien text,
   email_contact text,
   site_internet text,
-  favori boolean default false
+  favori boolean default false,
+  webexpire_visites int,
+  webexpire_trafic int,
+  webexpire_mots_cles int,
+  webexpire_nb int
 );
 
 -- Sécurité RLS : seuls les utilisateurs connectés peuvent lire/écrire

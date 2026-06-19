@@ -119,7 +119,10 @@ def scraper_webexpire() -> list[dict]:
                 continue
             if "." not in domain_name:
                 continue
-            # Col 3 = BL (backlinks total), Col 4 = RD (referring domains)
+            # Colonnes du HTML brut (vérifiées via requests+BeautifulSoup, pas le DOM
+            # JS-hydraté qui ajoute une colonne "enchérisseur" en plus) :
+            # 0=Nom 1=icône GMB 2=Fin 3=BL 4=RD 5=TF 6=CF 7=VI 8=TR 9=KW 10=NB
+            # 11=Prix actuel 12=Action (lien /offres/new)
             def col_int(idx):
                 if len(cols) > idx:
                     m = re.search(r"(\d+)", cols[idx].get_text(strip=True))
@@ -129,6 +132,10 @@ def scraper_webexpire() -> list[dict]:
             rd = col_int(4)
             tf = col_int(5)
             cf = col_int(6)
+            vi = col_int(7)
+            tr = col_int(8)
+            kw = col_int(9)
+            nb = col_int(10)
             # Col 2 = délai (ex: "7 jours", "3 heures")
             delai_txt = cols[2].get_text(strip=True)
             # Col 11 = prix actuel de l'enchère (ex: "80.00 €")
@@ -137,10 +144,10 @@ def scraper_webexpire() -> list[dict]:
                 m = re.search(r"([\d.,]+)", cols[11].get_text(strip=True))
                 if m:
                     prix_actuel = float(m.group(1).replace(",", "."))
-            # Col 12 = lien direct vers la page d'enchère de ce domaine
+            # Col 12 = lien direct vers la page d'enchère de ce domaine précis
             lien_enchere = None
             if len(cols) > 12:
-                a = cols[12].find("a")
+                a = cols[12].find("a", href=re.compile(r"/offres/new"))
                 if a and a.get("href"):
                     href = a["href"]
                     lien_enchere = href if href.startswith("http") else f"https://www.webexpire.fr{href}"
@@ -150,6 +157,10 @@ def scraper_webexpire() -> list[dict]:
                 "wayback_snapshots": bl,  # BL comme proxy wayback (seule métrique dispo sans API)
                 "trust_flow": tf,
                 "citation_flow": cf,
+                "webexpire_visites": vi,
+                "webexpire_trafic": tr,
+                "webexpire_mots_cles": kw,
+                "webexpire_nb": nb,
                 "source": "webexpire",
                 "delai_enchere": delai_txt,
                 "webexpire_prix_actuel": prix_actuel,
@@ -873,13 +884,32 @@ def estimate_recovery_price(categorie_entreprise: str, trust_flow: int = 0) -> t
         return (int(prix_min * 1.15), int(prix_max * 1.15))
     return (prix_min, prix_max)
 
-# Logique B (Filtre 1 — SEO/vente de liens) : grille de seuils TF/DA/RD de l'étude
-# Mathieu (14 098 sites .fr) — pas de trafic SEMrush disponible, on s'appuie sur les
-# 3 métriques réellement collectées (Trust Flow, Domain Authority, Referring Domains).
+# Logique B (Filtre 1 — SEO/vente de liens) : grille de tarification complète du guide
+# Mathieu (Trafic SEMrush x TF x DR/DA, étude sur 14 098 sites .fr). WebExpire fournit
+# directement le trafic (colonne TR) ; sans cette donnée (ex: CatchDoms), on retombe
+# sur les seuils différenciants TF/DA/RD.
 def estimate_sale_price_seo(domain_data: dict) -> tuple[int, int]:
     tf = domain_data.get("trust_flow") or 0
     da = domain_data.get("domain_authority") or 0
     rd = domain_data.get("ref_domains") or 0
+    trafic = domain_data.get("webexpire_trafic")
+
+    if trafic is not None:
+        if trafic >= 50000 and tf >= 35:
+            base = (150, 300)
+        elif trafic >= 10000 and tf >= 30:
+            base = (120, 200)
+        elif trafic >= 2000 and tf >= 25:
+            base = (80, 120)
+        elif trafic >= 500 and tf >= 15:
+            base = (50, 79)
+        else:
+            base = (29, 49)
+        if da >= 40:
+            base = (max(base[0], 150), max(base[1], 300))
+        elif da >= 30:
+            base = (max(base[0], 80), max(base[1], 120))
+        return base
 
     fourchettes = []
     if tf >= 30:
@@ -1064,6 +1094,10 @@ def send_telegram_alert_seo(domain_data: dict, score: int, fourchette_prix: tupl
         ligne_prix = "💰 Prix actuel WebExpire : non disponible"
         action = "→ [Voir sur WebExpire](https://www.webexpire.fr/encheres)"
 
+    trafic = domain_data.get("webexpire_trafic")
+    kw = domain_data.get("webexpire_mots_cles")
+    ligne_trafic = f"\n📈 Trafic WebExpire : {trafic} visites/mois \\· {kw} mots\\-clés" if trafic is not None else ""
+
     message = f"""{titre}
 
 🌐 Domaine : `{domain_name}`
@@ -1073,7 +1107,7 @@ def send_telegram_alert_seo(domain_data: dict, score: int, fourchette_prix: tupl
 📊 Score : {score}/100
 🌍 Présence web : {presence_web}
 📸 Wayback : {snapshots} snapshots
-🔗 Backlinks : {rd} RD
+🔗 Backlinks : {rd} RD{ligne_trafic}
 {_timing_note(days_left)}
 
 📌 *Action :*
@@ -1322,8 +1356,11 @@ def run():
     pipeline = []
     domaines_vus = set()
 
-    # Source 0 : SIRENE inversé — déjà enrichis, priorité maximale
-    for d in domaines_sirene:
+    # Source 0 : SIRENE inversé — déjà enrichis, plafonné pour ne jamais saturer
+    # le quota MAX_DOMAINES et empêcher les domaines SEO (WebExpire/CatchDoms)
+    # de passer (c'est ce qui faisait disparaître tout le Filtre 1 du dashboard).
+    MAX_SIRENE_PAR_RUN = 10
+    for d in domaines_sirene[:MAX_SIRENE_PAR_RUN]:
         pipeline.append((d["domain"], d))
         domaines_vus.add(d["domain"])
 
