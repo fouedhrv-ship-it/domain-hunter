@@ -46,6 +46,7 @@ def load_config() -> dict:
         "supabase_service_key": "SUPABASE_SERVICE_KEY",
         "edn_email":            "EDN_EMAIL",
         "edn_password":         "EDN_PASSWORD",
+        "catchdoms_token":      "CATCHDOMS_TOKEN",
     }
     for key, env_var in env_map.items():
         val = os.environ.get(env_var)
@@ -142,6 +143,74 @@ def scraper_webexpire() -> list[dict]:
         log.info(f"WebExpire: {len(domaines)} domaines .fr collectés")
     except Exception as e:
         log.warning(f"WebExpire scraping: {e}")
+    return domaines
+
+# ── Source CatchDoms (API officielle, remplace EDN — comptes bannis 2x) ───────
+
+def fetch_catchdoms(tld: str = "fr", per_page: int = 100, max_pages: int = 10) -> list[dict]:
+    """
+    Collecte les domaines expirés via l'API CatchDoms (catchdoms.com/api/domains).
+    Une seule requête fournit déjà score, TF/CF/DA, RD, Wayback, WHOIS et prix
+    d'enchère — remplace le scraping fragile d'ExpiredDomains.net (banni 2x).
+    """
+    token = CONFIG.get("catchdoms_token", "")
+    if not token or token.startswith("TON_"):
+        log.warning("CatchDoms : token non configuré, source désactivée.")
+        return []
+
+    headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
+    domaines = []
+    for page in range(1, max_pages + 1):
+        try:
+            r = requests.get(
+                "https://catchdoms.com/api/domains",
+                headers=headers,
+                params={"tld": tld, "per_page": per_page, "page": page},
+                timeout=15,
+            )
+            if r.status_code == 429:
+                log.warning("CatchDoms : rate limit atteint, on s'arrête pour ce run.")
+                break
+            r.raise_for_status()
+            data = r.json()
+            items = data.get("data", [])
+            if not items:
+                break
+            for item in items:
+                nom = (item.get("name") or "").lower()
+                if not nom:
+                    continue
+                domaines.append({
+                    "domain": nom,
+                    "ref_domains": item.get("referring_domains") or 0,
+                    "wayback_snapshots": item.get("wayback_snapshots") or 0,
+                    "trust_flow": item.get("trust_flow") or 0,
+                    "citation_flow": item.get("citation_flow") or 0,
+                    "domain_authority": item.get("domain_authority") or 0,
+                    "catchdoms_score": item.get("score") or 0,
+                    "catchdoms_type": item.get("type"),
+                    "catchdoms_max_bid": item.get("max_bid"),
+                    "catchdoms_bids_count": item.get("bids_count"),
+                    "catchdoms_auction_end_date": item.get("auction_end_date"),
+                    "catchdoms_purchase_url": item.get("purchase_url"),
+                    "catchdoms_purchase_platform": item.get("purchase_platform"),
+                    "has_gmb": item.get("has_gmb", False),
+                    "language": item.get("language"),
+                    "whois_expires_at": item.get("whois_expires_at"),
+                    "source": "catchdoms",
+                })
+            log.info(f"CatchDoms .{tld} page {page} : {len(items)} domaines")
+
+            meta = data.get("meta", {})
+            last_page = meta.get("last_page", page)
+            if page >= last_page:
+                break
+            time.sleep(0.5)
+        except Exception as e:
+            log.warning(f"CatchDoms .{tld} page {page}: {e}")
+            break
+
+    log.info(f"CatchDoms : {len(domaines)} domaines .{tld} collectés")
     return domaines
 
 EDN_SESSION: Optional[requests.Session] = None
@@ -356,7 +425,7 @@ def collecter_domaines() -> tuple[list[dict], list[dict]]:
     """Retourne (domaines_bruts, domaines_sirene_enrichis).
     Sources dans l'ordre :
       1. WebExpire.fr — domaines .fr en enchères, public, sans login (~50 domaines)
-      2. ExpiredDomains.net — si session disponible (cookies Chrome ou secrets GitHub)
+      2. CatchDoms — API officielle (remplace ExpiredDomains.net, banni 2x)
       3. SIRENE inversé — domaines générés depuis les entreprises actives
     """
     domaines_bruts = []
@@ -365,15 +434,15 @@ def collecter_domaines() -> tuple[list[dict], list[dict]]:
     webexpire = scraper_webexpire()
     domaines_bruts.extend(webexpire)
 
-    # Source 2 : ExpiredDomains.net (si session valide)
-    edn = scraper_expireddomains_net()
-    domaines_bruts.extend(edn)
+    # Source 2 : CatchDoms (API, remplace le scraping EDN)
+    catchdoms = fetch_catchdoms(tld="fr")
+    domaines_bruts.extend(catchdoms)
 
     # Source 3 : recherche inversée SIRENE
     domaines_sirene = recherche_inverse_sirene()
 
     log.info(
-        f"Collecte : {len(webexpire)} WebExpire + {len(edn)} EDN "
+        f"Collecte : {len(webexpire)} WebExpire + {len(catchdoms)} CatchDoms "
         f"+ {len(domaines_sirene)} SIRENE inversé = {len(domaines_bruts) + len(domaines_sirene)} total"
     )
     return domaines_bruts, domaines_sirene
@@ -958,9 +1027,21 @@ def enrichir_domaine(domain: str, pre_enriched: dict = None) -> Optional[dict]:
     if pre_enriched:
         domain_data.update(pre_enriched)
 
-    # A — RDAP (ignoré pour WebExpire : le dropcatcher a déjà re-enregistré → 364j faux)
-    if domain_data.get("source") == "webexpire":
-        # Domaine déjà tombé + en enchère sur WebExpire : jours_post_drop = 0 (vient de tomber)
+    # A — RDAP (ignoré pour WebExpire/CatchDoms : le dropcatcher a déjà re-enregistré → 364j faux)
+    if domain_data.get("source") == "catchdoms" and domain_data.get("whois_expires_at"):
+        # CatchDoms fournit déjà le WHOIS à jour, pas besoin de relookup RDAP
+        try:
+            expiry = dateutil_parser.parse(domain_data["whois_expires_at"]).replace(tzinfo=timezone.utc)
+            days = (expiry - datetime.now(timezone.utc)).days
+            domain_data["days_until_drop"] = days
+            domain_data["jours_avant_drop"] = days if days > 0 else 0
+            domain_data["jours_post_drop"] = abs(days) if days <= 0 else 0
+        except Exception:
+            domain_data["days_until_drop"] = 0
+            domain_data["jours_avant_drop"] = 0
+            domain_data["jours_post_drop"] = 0
+    elif domain_data.get("source") in ("webexpire", "catchdoms"):
+        # Domaine déjà tombé + en enchère : jours_post_drop = 0 (vient de tomber)
         domain_data["days_until_drop"] = 0
         domain_data["jours_avant_drop"] = 0
         domain_data["jours_post_drop"] = 0
@@ -1088,13 +1169,13 @@ def run():
                 continue
 
             # Filtre temporel post-RDAP :
-            # - WebExpire → toujours garder (déjà en enchère, imminents)
+            # - WebExpire/CatchDoms → toujours garder (déjà en enchère/réenregistrés, imminents)
             # - Sinon : drop dans ≤ 60j OU tombé depuis ≤ 90j
-            # - Si pas de date RDAP → garder (EDN liste déjà des "expired")
+            # - Si pas de date RDAP → garder (liste déjà des "expired")
             source = domain_data.get("source", "")
             days_until = domain_data.get("days_until_drop")
             jours_post = domain_data.get("jours_post_drop", 0) or 0
-            if source != "webexpire" and days_until is not None:
+            if source not in ("webexpire", "catchdoms") and days_until is not None:
                 if days_until > 60 and jours_post == 0:
                     log.debug(f"Ignoré {domain}: re-enregistré ou trop loin ({days_until}j)")
                     continue

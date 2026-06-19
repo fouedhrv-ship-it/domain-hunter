@@ -37,6 +37,7 @@ jobs:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           EDN_SESSID: ${{ secrets.EDN_SESSID }}
           EDN_REME: ${{ secrets.EDN_REME }}
+          CATCHDOMS_TOKEN: ${{ secrets.CATCHDOMS_TOKEN }}
         run: python hunter.py
 
   # ── Déploiement dashboard (à chaque push sur main) ────────────────────────
