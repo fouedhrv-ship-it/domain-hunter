@@ -138,7 +138,7 @@ def scraper_webexpire() -> list[dict]:
                 "trust_flow": tf,
                 "citation_flow": cf,
                 "source": "webexpire",
-                "delai_enchère": delai_txt,
+                "delai_enchere": delai_txt,
             })
         log.info(f"WebExpire: {len(domaines)} domaines .fr collectés")
     except Exception as e:
@@ -861,6 +861,7 @@ def send_telegram_alert(domain_data: dict, score: int, fourchette_prix: tuple) -
     categorie = domain_data.get("sirene_categorie_entreprise") or "TPE/indépendant"
     flag = domain_data.get("flag_prudence", False)
     inpi = domain_data.get("inpi_marque_deposee", False)
+    deja_pris = domain_data.get("deja_reenregistre_tiers", False)
 
     if flag:
         ligne_marque = "🟠 MARQUE DÉPOSÉE — entreprise active derrière : approche rapide et raisonnable (pas de négociation agressive)"
@@ -897,8 +898,48 @@ def send_telegram_alert(domain_data: dict, score: int, fourchette_prix: tuple) -
         timing_note = "📆 Date de drop inconnue — contacter dès acquisition confirmée"
 
     domain_name = domain_data.get("domain", "")
+    registrar = domain_data.get("registrar", "") or "inconnu"
 
-    email_template = f"""---
+    if deja_pris:
+        # 🟠 Pastille orange : domaine déjà ré-enregistré par un tiers avant nous.
+        # Plus de backorder possible — c'est une opportunité de négociation avec le
+        # nouveau titulaire, ou un recours légal (procédure PARL EXPERT de l'AFNIC,
+        # ~250€, pour réclamer un .fr qui porte atteinte au nom d'une entreprise active).
+        email_template = f"""---
+✉️ *TEMPLATE EMAIL — à adapter :*
+
+Objet : Votre ancien nom de domaine {domain_name}
+
+Bonjour {dirigeant},
+
+Je me permets de vous signaler que le nom de domaine {domain_name}, qui correspondait à votre entreprise {sirene}, n'a pas été renouvelé et a été repris par un tiers \\(registrar actuel : {registrar}\\).
+
+Deux options s'offrent à vous : négocier son rachat directement avec le nouveau titulaire, ou engager la procédure PARL EXPERT auprès de l'AFNIC \\(frais fixes d'environ 250€\\) si ce nom porte atteinte aux droits de votre entreprise \\(nom commercial, marque\\). Je peux vous accompagner sur l'une ou l'autre de ces démarches.
+
+Cordialement,
+[Votre nom]
+---"""
+
+        message = f"""🟠 *DOMAINE DÉJÀ REPRIS PAR UN TIERS — Opportunité {prix_min}–{prix_max}€*
+
+🌐 Domaine : `{domain_name}`
+📊 Score : {score}/100
+🏢 SIRENE : {sirene} \\({categorie}\\) — {sirene_statut}
+👤 Dirigeant : {dirigeant}
+🌍 Présence web : {site_note}
+🏛️ Registrar actuel : {registrar}
+⚖️ Marque INPI : {ligne_marque}
+
+⚠️ Ce domaine n'est plus disponible en backorder — il a déjà été ré-enregistré.
+
+📌 *Recours possibles :*
+→ Négocier le rachat directement avec le nouveau titulaire \\(via WHOIS/registrar\\)
+→ Procédure PARL EXPERT \\(AFNIC, ~250€\\) si atteinte aux droits de l'entreprise — voir afnic\\.fr
+→ [Fiche SIRENE]({f"https://annuaire-entreprises.data.gouv.fr/rechercher?terme={sirene}"})
+
+{email_template}"""
+    else:
+        email_template = f"""---
 ✉️ *TEMPLATE EMAIL — à adapter :*
 
 Objet : Votre nom de domaine {domain_name}
@@ -915,7 +956,7 @@ Cordialement,
 [Votre nom]
 ---"""
 
-    message = f"""{"🟠" if flag else "🎯"} *DOMAINE — Revente estimée {prix_min}–{prix_max}€*
+        message = f"""{"🟠" if flag else "🎯"} *DOMAINE — Revente estimée {prix_min}–{prix_max}€*
 
 🌐 Domaine : `{domain_name}`
 📅 Drop dans : {days_left} jours
@@ -1081,6 +1122,10 @@ def enrichir_domaine(domain: str, pre_enriched: dict = None) -> Optional[dict]:
                 domain_data["days_until_drop"] = days
                 domain_data["jours_avant_drop"] = days if days > 0 else 0
                 domain_data["jours_post_drop"] = abs(days) if days <= 0 else 0
+                if days > 60:
+                    # Renouvellement récent, loin de toute expiration : quelqu'un d'autre
+                    # a déjà ré-enregistré ce domaine — plus possible en backorder.
+                    domain_data["deja_reenregistre_tiers"] = True
             elif any(s in rdap_statuses for s in ["pendingdelete", "pending delete", "redemptionperiod"]):
                 domain_data["days_until_drop"] = 3
                 domain_data["jours_avant_drop"] = 3
@@ -1163,18 +1208,16 @@ def run():
         pipeline.append((d["domain"], d))
         domaines_vus.add(d["domain"])
 
-    # Source 1 : ExpiredDomains.net — dicts avec ref_domains + wayback_snapshots scrapés
+    # Source 1 : WebExpire + CatchDoms — on garde tous les champs déjà collectés
+    # (score, TF/CF/DA, prix d'enchère, WHOIS...) au lieu d'un sous-ensemble figé.
     for d in domaines_edn:
         domain = d.get("domain", "")
         if not domain or domain in domaines_vus:
             continue
         rd = d.get("ref_domains", 0)
         if filtrer(domain, rd):
-            pipeline.append((domain, {
-                "ref_domains": rd,
-                "wayback_snapshots": d.get("wayback_snapshots", 0),
-                "source": d.get("source", ""),
-            }))
+            pre_enriched = {k: v for k, v in d.items() if k != "domain"}
+            pipeline.append((domain, pre_enriched))
             domaines_vus.add(domain)
 
     pipeline = pipeline[:MAX_DOMAINES]
@@ -1191,12 +1234,16 @@ def run():
 
             # Filtre temporel post-RDAP :
             # - WebExpire/CatchDoms → toujours garder (déjà en enchère/réenregistrés, imminents)
+            # - Filtre 2 (entreprise active) → toujours garder, même déjà ré-enregistré par
+            #   un tiers : c'est alors une opportunité de négociation/recours légal (pastille
+            #   orange), pas un backorder classique.
             # - Sinon : drop dans ≤ 60j OU tombé depuis ≤ 90j
             # - Si pas de date RDAP → garder (liste déjà des "expired")
             source = domain_data.get("source", "")
             days_until = domain_data.get("days_until_drop")
             jours_post = domain_data.get("jours_post_drop", 0) or 0
-            if source not in ("webexpire", "catchdoms") and days_until is not None:
+            sirene_ok = domain_data.get("sirene_actif") and domain_data.get("sirene_nom_correspond")
+            if source not in ("webexpire", "catchdoms") and not sirene_ok and days_until is not None:
                 if days_until > 60 and jours_post == 0:
                     log.debug(f"Ignoré {domain}: re-enregistré ou trop loin ({days_until}j)")
                     continue

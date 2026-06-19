@@ -25,7 +25,9 @@ create table if not exists domains_scanned (
   has_autre_site boolean default false,
   jours_post_drop int,
   statut text default 'nouveau',
-  notes text
+  notes text,
+  deja_reenregistre_tiers boolean default false,
+  registrar text
 );
 
 -- Sécurité RLS : seuls les utilisateurs connectés peuvent lire/écrire
