@@ -131,6 +131,19 @@ def scraper_webexpire() -> list[dict]:
             cf = col_int(6)
             # Col 2 = délai (ex: "7 jours", "3 heures")
             delai_txt = cols[2].get_text(strip=True)
+            # Col 11 = prix actuel de l'enchère (ex: "80.00 €")
+            prix_actuel = 0.0
+            if len(cols) > 11:
+                m = re.search(r"([\d.,]+)", cols[11].get_text(strip=True))
+                if m:
+                    prix_actuel = float(m.group(1).replace(",", "."))
+            # Col 12 = lien direct vers la page d'enchère de ce domaine
+            lien_enchere = None
+            if len(cols) > 12:
+                a = cols[12].find("a")
+                if a and a.get("href"):
+                    href = a["href"]
+                    lien_enchere = href if href.startswith("http") else f"https://www.webexpire.fr{href}"
             domaines.append({
                 "domain": domain_name,
                 "ref_domains": rd,
@@ -139,6 +152,8 @@ def scraper_webexpire() -> list[dict]:
                 "citation_flow": cf,
                 "source": "webexpire",
                 "delai_enchere": delai_txt,
+                "webexpire_prix_actuel": prix_actuel,
+                "webexpire_lien": lien_enchere,
             })
         log.info(f"WebExpire: {len(domaines)} domaines .fr collectés")
     except Exception as e:
@@ -952,49 +967,49 @@ def send_telegram_alert_revente(domain_data: dict, score: int, fourchette_prix: 
 
 def send_telegram_alert_seo(domain_data: dict, score: int, fourchette_prix: tuple) -> None:
     """Filtre 1 — domaine à potentiel SEO/vente de liens, sans entreprise active
-    identifiée. Met en avant les métriques utiles à un acheteur de liens (TF/CF/DA/RD)
-    et, si disponible, le prix d'enchère réel et le lien d'achat direct CatchDoms —
-    rien à voir avec SIRENE/dirigeant/INPI qui ne s'appliquent pas ici."""
+    identifiée. Rien à voir avec SIRENE/dirigeant/INPI qui ne s'appliquent pas ici."""
     domain_name = domain_data.get("domain", "")
     prix_min, prix_max = fourchette_prix
-    rd = domain_data.get("ref_domains", 0)
-    tf = domain_data.get("trust_flow", 0)
-    cf = domain_data.get("citation_flow", 0)
-    da = domain_data.get("domain_authority", 0)
-    snapshots = domain_data.get("wayback_snapshots", 0)
-    langue = domain_data.get("language") or "?"
     days_left = domain_data.get("days_until_drop", "?")
+    rd = domain_data.get("ref_domains", 0)
+    snapshots = domain_data.get("wayback_snapshots", 0)
+    presence_web = (
+        "✅ Contenu détecté \\(Common Crawl\\)"
+        if domain_data.get("common_crawl_pages", 0) > 0 else
+        "❌ Aucun contenu indexé détecté"
+    )
 
-    metriques = f"""🔗 RD : {rd} \\| TF : {tf} \\| CF : {cf} \\| DA : {da}
-📸 Wayback : {snapshots} snapshots \\| Langue : {langue}"""
+    en_enchere = domain_data.get("source") == "webexpire" and domain_data.get("webexpire_lien")
+    prix_actuel = domain_data.get("webexpire_prix_actuel") or 0
+    lien_webexpire = domain_data.get("webexpire_lien")
 
-    max_bid = domain_data.get("catchdoms_max_bid")
-    purchase_url = domain_data.get("catchdoms_purchase_url")
-    purchase_platform = domain_data.get("catchdoms_purchase_platform")
-    bids_count = domain_data.get("catchdoms_bids_count")
-    auction_end = domain_data.get("catchdoms_auction_end_date")
-
-    if purchase_url:
-        ligne_enchere = f"💰 Enchère actuelle : {max_bid}€ \\({bids_count} enchérisseurs\\) — fin : {auction_end}"
-        actions = f"→ [Racheter sur {purchase_platform}]({purchase_url})"
+    if en_enchere:
+        titre = "🔥 *DOMAINE SEO EN ENCHÈRE SUR WEBEXPIRE*"
+        ligne_enchere = "📈 Enchère sur WebExpire : ✅ Oui"
+        ligne_prix = f"💰 Prix actuel WebExpire : {prix_actuel:.2f}€"
+        action = f"→ [Voir l'enchère sur WebExpire]({lien_webexpire})"
     else:
-        ligne_enchere = ""
-        actions = f"""→ [Racheter sur WebExpire](https://www.webexpire.fr/encheres)
-→ [Racheter sur OVH](https://www.ovhcloud.com/fr/domains/)
-→ [Rechercher sur Gandi](https://www.gandi.net/fr/domain/suggest?search={domain_name})"""
+        titre = "🎯 *DOMAINE SEO DISPONIBLE*"
+        ligne_enchere = "📈 Enchère sur WebExpire : ❌ Non \\(autre source\\)"
+        ligne_prix = "💰 Prix actuel WebExpire : non disponible"
+        action = "→ [Voir sur WebExpire](https://www.webexpire.fr/encheres)"
 
-    message = f"""🎯 *DOMAINE SEO — Revente estimée {prix_min}–{prix_max}€*
+    message = f"""{titre}
 
 🌐 Domaine : `{domain_name}`
-📊 Score : {score}/100
-{metriques}
+📅 Date avant drop : {days_left} jours
 {ligne_enchere}
+{ligne_prix}
+📊 Score : {score}/100
+🌍 Présence web : {presence_web}
+📸 Wayback : {snapshots} snapshots
+🔗 Backlinks : {rd} RD
 {_timing_note(days_left)}
 
-📌 *Actions :*
-{actions}
+📌 *Action :*
+{action}
 
-📎 Max 2 plateformes de backorder par domaine."""
+💵 *Estimation à la revente : {prix_min}–{prix_max}€*"""
 
     _envoyer_message_telegram(message, domain_name)
 

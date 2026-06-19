@@ -27,7 +27,27 @@ create table if not exists domains_scanned (
   statut text default 'nouveau',
   notes text,
   deja_reenregistre_tiers boolean default false,
-  registrar text
+  registrar text,
+  common_crawl_pages int,
+  trust_flow int,
+  citation_flow int,
+  source text,
+  delai_enchere text,
+  date_derniere_archive text,
+  days_until_drop int,
+  domain_authority int,
+  catchdoms_score int,
+  catchdoms_type text,
+  catchdoms_max_bid numeric,
+  catchdoms_bids_count int,
+  catchdoms_auction_end_date timestamptz,
+  catchdoms_purchase_url text,
+  catchdoms_purchase_platform text,
+  has_gmb boolean default false,
+  language text,
+  whois_expires_at timestamptz,
+  webexpire_prix_actuel numeric,
+  webexpire_lien text
 );
 
 -- Sécurité RLS : seuls les utilisateurs connectés peuvent lire/écrire
