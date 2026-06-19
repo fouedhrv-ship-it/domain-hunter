@@ -34,7 +34,14 @@ function ScoreMini({ score }) {
   )
 }
 
-function DropBadge({ jours_avant, jours_post, source, delai }) {
+function DropBadge({ jours_avant, jours_post, source, delai, deja_repris }) {
+  if (deja_repris) {
+    return (
+      <span className="drop-badge" style={{ background: 'rgba(244,63,94,0.1)', color: 'var(--red)', borderColor: 'rgba(244,63,94,0.3)' }}>
+        ⚠ REPRIS
+      </span>
+    )
+  }
   if (source === 'webexpire') {
     return (
       <span className="drop-badge urgent" style={{ background: 'rgba(0,245,196,0.1)', color: 'var(--cyan)', borderColor: 'rgba(0,245,196,0.3)' }}>
@@ -517,6 +524,7 @@ export default function Domaines() {
                     jours_post={d.jours_post_drop}
                     source={d.source}
                     delai={d.delai_enchere}
+                    deja_repris={d.deja_reenregistre_tiers}
                   />
                 </div>
 

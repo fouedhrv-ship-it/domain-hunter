@@ -1249,6 +1249,10 @@ def enrichir_domaine(domain: str, pre_enriched: dict = None) -> Optional[dict]:
             domain_data["days_until_drop"] = days
             domain_data["jours_avant_drop"] = days if days > 0 else 0
             domain_data["jours_post_drop"] = abs(days) if days <= 0 else 0
+            if days > 60:
+                # Whois encore loin : quelqu'un a déjà (re)enregistré ce domaine,
+                # même logique que la branche RDAP générique plus bas.
+                domain_data["deja_reenregistre_tiers"] = True
         except Exception:
             domain_data["days_until_drop"] = 0
             domain_data["jours_avant_drop"] = 0
@@ -1419,20 +1423,29 @@ def run():
                 continue
 
             # Filtre temporel post-RDAP :
-            # - WebExpire/CatchDoms → uniquement si réellement en enchère active (sinon
-            #   un domaine CatchDoms avec un whois encore valide 365j passait quand même,
-            #   ce qui n'a rien à voir avec une enchère).
-            # - Filtre 2 (entreprise active) → toujours garder, même déjà ré-enregistré par
-            #   un tiers : c'est alors une opportunité de négociation/recours légal (pastille
-            #   orange), pas un backorder classique.
-            # - Sinon : drop dans ≤ 60j OU tombé depuis ≤ 90j
-            # - Si pas de date RDAP → garder (liste déjà des "expired")
+            # - WebExpire/CatchDoms (sans SIRENE) → uniquement si réellement en enchère
+            #   active (sinon un domaine CatchDoms avec un whois encore valide 365j
+            #   passait quand même, ce qui n'a rien à voir avec une enchère).
+            # - Filtre 2 (entreprise active) déjà repris par un tiers → toujours garder,
+            #   c'est une opportunité de négociation/recours légal (pastille orange).
+            # - Filtre 2 sans timing connu ou trop loin/vieux et pas "déjà repris" → drop
+            #   (sinon un simple listing CatchDoms type "buy" sans rapport avec un drop
+            #   s'affichait avec un "659j" ou un J+0 trompeur dans la revente).
+            # - Sinon (générique) : drop dans ≤ 60j OU tombé depuis ≤ 90j
             source = domain_data.get("source", "")
             days_until = domain_data.get("days_until_drop")
             jours_post = domain_data.get("jours_post_drop", 0) or 0
             sirene_ok = domain_data.get("sirene_actif") and domain_data.get("sirene_nom_correspond")
+            deja_repris = domain_data.get("deja_reenregistre_tiers")
             if sirene_ok:
-                pass
+                if not deja_repris:
+                    if days_until is None:
+                        log.debug(f"Ignoré {domain}: SIRENE matché mais timing inconnu, pas un cas de recours")
+                        continue
+                    if days_until > 60 and jours_post == 0:
+                        continue
+                    if jours_post > 90:
+                        continue
             elif source in ("webexpire", "catchdoms"):
                 if not en_enchere_active(domain_data):
                     log.debug(f"Ignoré {domain}: pas d'enchère active ({source})")
