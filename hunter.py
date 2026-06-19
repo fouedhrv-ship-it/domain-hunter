@@ -1455,9 +1455,101 @@ def run_edn():
         f"écrits en base → {stats['alertes']} alertes Telegram ==="
     )
 
+# ── Monitoring temps réel des favoris (toutes les 30 min) ─────────────────────
+
+def domaines_favoris() -> list[dict]:
+    """Récupère les domaines marqués favoris en base (cochés depuis le dashboard)."""
+    base_url = CONFIG.get("supabase_url", "")
+    if not base_url or base_url.startswith("TON_"):
+        return []
+    try:
+        r = requests.get(
+            f"{base_url}/rest/v1/domains_scanned",
+            headers=supabase_headers(),
+            params={"favori": "eq.true", "select": "*"},
+            timeout=15,
+        )
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        log.warning(f"Supabase lecture favoris: {e}")
+        return []
+
+def _envoyer_alerte_favori(domain: str, corps: str) -> None:
+    message = f"⭐ *SUIVI FAVORI*\n\n🌐 Domaine : `{domain}`\n\n{corps}"
+    try:
+        _envoyer_message_telegram(message, domain)
+    except Exception:
+        pass
+
+def surveiller_favoris() -> None:
+    """Job dédié (30 min) : pour chaque domaine favori, vérifie si le prix WebExpire
+    a augmenté ou si le domaine vient de passer de backorder à enchère, et met à jour
+    le temps avant drop via RDAP (peu importe le registrar)."""
+    log.info("=== Domain Hunter — Surveillance favoris démarrée ===")
+    favoris = domaines_favoris()
+    if not favoris:
+        log.info("Aucun favori à surveiller.")
+        return
+
+    webexpire_actuel = {d["domain"]: d for d in scraper_webexpire()}
+    alertes = 0
+
+    for fav in favoris:
+        domain = fav.get("domain", "")
+        if not domain:
+            continue
+
+        maj: dict = {}
+        ancien_prix = fav.get("webexpire_prix_actuel") or 0
+        etait_en_enchere = bool(fav.get("webexpire_lien"))
+        actuel = webexpire_actuel.get(domain)
+
+        if actuel:
+            nouveau_prix = actuel.get("webexpire_prix_actuel") or 0
+            est_en_enchere = bool(actuel.get("webexpire_lien"))
+            maj["webexpire_prix_actuel"] = nouveau_prix
+            maj["webexpire_lien"] = actuel.get("webexpire_lien")
+            maj["delai_enchere"] = actuel.get("delai_enchere")
+
+            if not etait_en_enchere and est_en_enchere:
+                _envoyer_alerte_favori(
+                    domain,
+                    f"🎯 *Passage de backorder à enchère sur WebExpire*\n"
+                    f"💰 Prix actuel : {nouveau_prix:.2f}€\n"
+                    f"→ [Voir l'enchère]({actuel.get('webexpire_lien')})"
+                )
+                alertes += 1
+            elif est_en_enchere and nouveau_prix > ancien_prix:
+                _envoyer_alerte_favori(
+                    domain,
+                    f"📈 *Le prix de l'enchère a augmenté*\n"
+                    f"💰 {ancien_prix:.2f}€ → {nouveau_prix:.2f}€\n"
+                    f"→ [Voir l'enchère]({actuel.get('webexpire_lien')})"
+                )
+                alertes += 1
+
+        # Temps avant drop à jour, peu importe le registrar (RDAP interroge le bon
+        # serveur selon le TLD : nic.fr, Verisign .com/.net, etc.)
+        rdap = rdap_lookup(domain)
+        if rdap and rdap.get("expiry_date"):
+            jours = (rdap["expiry_date"] - datetime.now(timezone.utc)).days
+            if jours != fav.get("jours_avant_drop"):
+                maj["jours_avant_drop"] = jours
+            if rdap.get("registrar"):
+                maj["registrar"] = rdap["registrar"]
+
+        if maj:
+            maj["domain"] = domain
+            upsert_domain(maj)
+
+    log.info(f"=== Fin surveillance favoris : {len(favoris)} suivis, {alertes} alertes envoyées ===")
+
 if __name__ == "__main__":
     import sys
     if len(sys.argv) > 1 and sys.argv[1] == "edn":
         run_edn()
+    elif len(sys.argv) > 1 and sys.argv[1] == "monitor":
+        surveiller_favoris()
     else:
         run()

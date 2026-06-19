@@ -31,6 +31,12 @@ export default function DomainDetail() {
     setTimeout(() => setSaved(false), 2000)
   }
 
+  async function toggleFavori() {
+    const nouveau = !domain.favori
+    setDomain(prev => ({ ...prev, favori: nouveau }))
+    await supabase.from('domains_scanned').update({ favori: nouveau }).eq('id', id)
+  }
+
   if (!domain) {
     return (
       <div className="loading-state" style={{ minHeight: '100dvh' }}>
@@ -64,6 +70,14 @@ export default function DomainDetail() {
           {domain.flag_prudence ? '🟠 ' : ''}
           <span>{domain.domain}</span>
         </span>
+        <button
+          className={`favori-btn${domain.favori ? ' active' : ''}`}
+          onClick={toggleFavori}
+          title={domain.favori ? 'Retirer des favoris' : 'Ajouter aux favoris (surveillance temps réel)'}
+          style={{ fontSize: 20 }}
+        >
+          {domain.favori ? '★' : '☆'}
+        </button>
         {domain.alerte_telegram_envoyee && (
           <span style={{
             marginLeft: 'auto',
@@ -143,6 +157,27 @@ export default function DomainDetail() {
                     : <span style={{ color: 'var(--green)' }}>✓ Non</span>
                   }
                 />
+                <DataRow
+                  label="Mail ancien proprio"
+                  value={domain.email_contact
+                    ? <a href={`mailto:${domain.email_contact}`} style={{ color: 'var(--cyan)' }}>{domain.email_contact}</a>
+                    : <span style={{ color: 'var(--text-3)' }}>non trouvé</span>
+                  }
+                />
+                {domain.deja_reenregistre_tiers && (
+                  <div style={{
+                    marginTop: 10,
+                    padding: '10px 12px',
+                    background: 'rgba(244,63,94,0.08)',
+                    border: '1px solid rgba(244,63,94,0.2)',
+                    borderRadius: 5,
+                    fontSize: 11,
+                    color: 'var(--red)',
+                    lineHeight: 1.5,
+                  }}>
+                    ⚠ Déjà repris par un tiers{domain.registrar ? ` (${domain.registrar})` : ''} — recours possible via procédure PARL EXPERT (AFNIC, ~250€).
+                  </div>
+                )}
                 <a
                   className="ext-link"
                   href={`https://annuaire-entreprises.data.gouv.fr/rechercher?terme=${encodeURIComponent(domain.sirene_denomination || domain.domain)}`}
@@ -181,6 +216,60 @@ export default function DomainDetail() {
               </span>
             } />
           </div>
+
+          {/* Métriques d'autorité (Majestic/Moz) */}
+          <div className="card" style={{ '--card-accent': 'var(--purple)' }}>
+            <div className="card-title">
+              <span className="card-title-icon">◆</span>
+              MÉTRIQUES D'AUTORITÉ
+              <span className="card-title-line" />
+            </div>
+            <DataRow label="Trust Flow (TF)" value={domain.trust_flow ?? '—'} />
+            <DataRow label="Citation Flow (CF)" value={domain.citation_flow ?? '—'} />
+            <DataRow label="Domain Authority (DA)" value={domain.domain_authority ?? '—'} />
+            <DataRow label="Registrar" value={domain.registrar || '—'} />
+            {domain.badge_surpaye && (
+              <div style={{ marginTop: 10 }} className="badge-surpaye">
+                🚩 SURPAYÉ — prix WebExpire au-dessus de la valeur estimée
+              </div>
+            )}
+          </div>
+
+          {/* Enchère WebExpire */}
+          {domain.source === 'webexpire' && domain.webexpire_lien && (
+            <div className="card" style={{ '--card-accent': 'var(--cyan)' }}>
+              <div className="card-title">
+                <span className="card-title-icon">⚡</span>
+                ENCHÈRE WEBEXPIRE
+                <span className="card-title-line" />
+              </div>
+              <DataRow label="Prix actuel" value={domain.webexpire_prix_actuel ? `${domain.webexpire_prix_actuel}€` : '—'} />
+              <DataRow label="Délai" value={domain.delai_enchere || '—'} />
+              <a className="ext-link" href={domain.webexpire_lien} target="_blank" rel="noopener noreferrer">
+                ↗ Voir l'enchère sur WebExpire
+              </a>
+            </div>
+          )}
+
+          {/* CatchDoms */}
+          {domain.source === 'catchdoms' && (
+            <div className="card" style={{ '--card-accent': 'var(--cyan)' }}>
+              <div className="card-title">
+                <span className="card-title-icon">⚡</span>
+                CATCHDOMS
+                <span className="card-title-line" />
+              </div>
+              <DataRow label="Score CatchDoms" value={domain.catchdoms_score ?? '—'} />
+              <DataRow label="Type" value={domain.catchdoms_type || '—'} />
+              <DataRow label="Enchère max" value={domain.catchdoms_max_bid ? `${domain.catchdoms_max_bid}€` : '—'} />
+              <DataRow label="Nombre d'enchères" value={domain.catchdoms_bids_count ?? '—'} />
+              {domain.catchdoms_purchase_url && (
+                <a className="ext-link" href={domain.catchdoms_purchase_url} target="_blank" rel="noopener noreferrer">
+                  ↗ Voir sur {domain.catchdoms_purchase_platform || 'CatchDoms'}
+                </a>
+              )}
+            </div>
+          )}
 
           {/* Risques */}
           <div className="card" style={{ '--card-accent': (domain.inpi_marque_deposee || domain.domaine_blackliste || domain.pivot_thematique_detecte) ? 'var(--red)' : 'var(--green)' }}>

@@ -5,6 +5,7 @@ on:
     - cron: '*/15 * * * *'  # scan principal : CatchDoms + WebExpire
     - cron: '0 6 * * *'     # EDN — matin
     - cron: '0 18 * * *'    # EDN — soir
+    - cron: '*/30 * * * *'  # surveillance des favoris (prix, enchère, drop)
   workflow_dispatch:
   push:
     branches: [main]
@@ -73,6 +74,33 @@ jobs:
           EDN_SESSID: ${{ secrets.EDN_SESSID }}
           EDN_REME: ${{ secrets.EDN_REME }}
         run: python hunter.py edn
+
+  # ── Surveillance des favoris (30 min) — prix, enchère, drop ─────────────────
+  monitor-favoris:
+    name: Surveillance favoris
+    runs-on: ubuntu-latest
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'schedule' && github.event.schedule == '*/30 * * * *')
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run favoris monitor
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: python hunter.py monitor
 
   # ── Déploiement dashboard (à chaque push sur main) ────────────────────────
   deploy-dashboard:

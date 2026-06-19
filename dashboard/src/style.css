@@ -590,12 +590,47 @@ body::before {
 .table-row:hover::before { opacity: 1; }
 
 /* Colonnes */
-.col-domain  { flex: 2; min-width: 0; padding-right: 16px; }
+.col-favori  { flex: 0.4; padding-right: 8px; }
+.col-domain  { flex: 1.8; min-width: 0; padding-right: 16px; }
+.col-metrics { flex: 1.3; padding-right: 16px; }
 .col-prix    { flex: 1.2; padding-right: 16px; }
 .col-score   { flex: 1; padding-right: 16px; }
 .col-sirene  { flex: 1.5; padding-right: 16px; }
 .col-drop    { flex: 0.8; padding-right: 16px; }
 .col-statut  { flex: 0.9; }
+
+.favori-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  padding: 4px;
+  color: var(--text-3);
+  transition: color 0.15s, transform 0.1s;
+}
+.favori-btn:hover { transform: scale(1.15); }
+.favori-btn.active { color: var(--amber); }
+
+.metrics-line {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 10px;
+  color: var(--text-3);
+}
+.metrics-line .metric-val { color: var(--text-2); font-weight: 600; }
+.badge-surpaye {
+  display: inline-block;
+  margin-top: 3px;
+  font-size: 9px;
+  color: var(--red);
+  background: rgba(244,63,94,0.1);
+  border: 1px solid rgba(244,63,94,0.25);
+  border-radius: 3px;
+  padding: 1px 5px;
+  letter-spacing: 0.04em;
+}
 
 .domain-name {
   font-size: 14px;
@@ -1015,7 +1050,7 @@ body::before {
     gap: 8px;
     min-height: unset;
   }
-  .col-domain, .col-prix, .col-score, .col-sirene, .col-drop, .col-statut {
+  .col-favori, .col-domain, .col-metrics, .col-prix, .col-score, .col-sirene, .col-drop, .col-statut {
     flex: none; width: 100%; padding-right: 0;
   }
   .col-prix .price-value { font-size: 18px; }

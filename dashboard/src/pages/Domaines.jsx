@@ -68,6 +68,7 @@ export default function Domaines() {
   const [filtreStatut, setFiltreStatut] = useState('tous')
   const [filtreSirene, setFiltreSirene] = useState(false)
   const [filtrePrudence, setFiltrePrudence] = useState(false)
+  const [filtreFavoris, setFiltreFavoris] = useState(false)
   const [scoreMin, setScoreMin] = useState(0)
   const [scanning, setScanning] = useState(false)
   const [scanMsg, setScanMsg] = useState('')
@@ -85,17 +86,25 @@ export default function Domaines() {
     if (filtreStatut !== 'tous') q = q.eq('statut', filtreStatut)
     if (filtreSirene) q = q.eq('sirene_actif', true).eq('sirene_nom_correspond', true)
     if (filtrePrudence) q = q.eq('flag_prudence', true)
+    if (filtreFavoris) q = q.eq('favori', true)
     if (scoreMin > 0) q = q.gte('score', scoreMin)
 
     const { data, error } = await q
     if (!error) setDomaines(data || [])
     setLoading(false)
-  }, [filtreStatut, filtreSirene, filtrePrudence, scoreMin])
+  }, [filtreStatut, filtreSirene, filtrePrudence, filtreFavoris, scoreMin])
 
   useEffect(() => { fetchDomaines() }, [fetchDomaines])
 
   async function logout() {
     await supabase.auth.signOut()
+  }
+
+  async function toggleFavori(e, d) {
+    e.stopPropagation()
+    const nouveau = !d.favori
+    setDomaines(prev => prev.map(x => x.id === d.id ? { ...x, favori: nouveau } : x))
+    await supabase.from('domains_scanned').update({ favori: nouveau }).eq('id', d.id)
   }
 
   function stopPolling() {
@@ -260,6 +269,10 @@ export default function Domaines() {
           <input type="checkbox" checked={filtrePrudence} onChange={e => setFiltrePrudence(e.target.checked)} />
           🟠 Prudence
         </label>
+        <label className="filter-check">
+          <input type="checkbox" checked={filtreFavoris} onChange={e => setFiltreFavoris(e.target.checked)} />
+          ★ Favoris
+        </label>
 
         <span className="filter-sep" />
 
@@ -295,7 +308,9 @@ export default function Domaines() {
         ) : (
           <>
             <div className="table-head">
+              <span className="col-favori"></span>
               <span className="col-domain">DOMAINE</span>
+              <span className="col-metrics">TF · CF · DA · RD</span>
               <span className="col-prix">PRIX ESTIMÉ</span>
               <span className="col-score">SCORE</span>
               <span className="col-sirene">SIRENE</span>
@@ -320,11 +335,31 @@ export default function Domaines() {
                   style={{ '--row-color': rowColor, animationDelay: `${i * 20}ms` }}
                   onClick={() => navigate(`/domaines/${d.id}`)}
                 >
+                  <div className="col-favori">
+                    <button
+                      className={`favori-btn${d.favori ? ' active' : ''}`}
+                      onClick={e => toggleFavori(e, d)}
+                      title={d.favori ? 'Retirer des favoris' : 'Ajouter aux favoris (surveillance temps réel)'}
+                    >
+                      {d.favori ? '★' : '☆'}
+                    </button>
+                  </div>
+
                   <div className="col-domain">
                     <span className="domain-name">
                       {d.flag_prudence ? '🟠 ' : ''}{d.domain}
                     </span>
                     <span className="domain-src">{d.source || 'EDN'}</span>
+                  </div>
+
+                  <div className="col-metrics">
+                    <div className="metrics-line">
+                      <span>TF <span className="metric-val">{d.trust_flow ?? '—'}</span></span>
+                      <span>CF <span className="metric-val">{d.citation_flow ?? '—'}</span></span>
+                      <span>DA <span className="metric-val">{d.domain_authority ?? '—'}</span></span>
+                      <span>RD <span className="metric-val">{d.ref_domains ?? '—'}</span></span>
+                    </div>
+                    {d.badge_surpaye && <span className="badge-surpaye">🚩 SURPAYÉ</span>}
                   </div>
 
                   <div className="col-prix">
@@ -335,6 +370,17 @@ export default function Domaines() {
                       </>
                     ) : (
                       <span style={{ color: 'var(--text-3)' }}>—</span>
+                    )}
+                    {d.webexpire_lien && (
+                      <a
+                        href={d.webexpire_lien}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={e => e.stopPropagation()}
+                        style={{ display: 'block', fontSize: 10, color: 'var(--cyan)', marginTop: 2 }}
+                      >
+                        ↗ {d.webexpire_prix_actuel ? `${d.webexpire_prix_actuel}€ enchère` : 'voir enchère'}
+                      </a>
                     )}
                   </div>
 
@@ -358,7 +404,7 @@ export default function Domaines() {
                       jours_avant={d.jours_avant_drop}
                       jours_post={d.jours_post_drop}
                       source={d.source}
-                      delai={d.delai_enchère}
+                      delai={d.delai_enchere}
                     />
                   </div>
 

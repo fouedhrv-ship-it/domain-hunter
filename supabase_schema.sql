@@ -49,7 +49,8 @@ create table if not exists domains_scanned (
   webexpire_prix_actuel numeric,
   webexpire_lien text,
   email_contact text,
-  site_internet text
+  site_internet text,
+  favori boolean default false
 );
 
 -- Sécurité RLS : seuls les utilisateurs connectés peuvent lire/écrire
