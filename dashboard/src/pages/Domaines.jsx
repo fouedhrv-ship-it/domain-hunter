@@ -53,6 +53,33 @@ function DropBadge({ jours_avant, jours_post, source, delai }) {
   return <span style={{ color: 'var(--text-3)' }}>—</span>
 }
 
+function EnchereCell({ d }) {
+  const enEnchere = d.source === 'webexpire' && d.webexpire_lien
+  if (!enEnchere) {
+    return <span style={{ color: 'var(--text-3)', fontSize: 12 }}>❌ Non en enchère</span>
+  }
+  return (
+    <a
+      href={d.webexpire_lien}
+      target="_blank"
+      rel="noopener noreferrer"
+      onClick={e => e.stopPropagation()}
+      style={{ display: 'block', fontSize: 12, color: 'var(--cyan)' }}
+    >
+      ↗ {d.webexpire_prix_actuel != null ? `${d.webexpire_prix_actuel}€` : 'enchère'}
+      {d.badge_surpaye && <span className="badge-surpaye" style={{ marginLeft: 6 }}>SURPAYÉ</span>}
+    </a>
+  )
+}
+
+function PresenceCell({ d }) {
+  return (
+    <span style={{ fontSize: 11, color: 'var(--text-2)' }}>
+      {d.common_crawl_pages > 0 ? '✅ contenu' : '❌ vide'} · 📸 {d.wayback_snapshots ?? 0}
+    </span>
+  )
+}
+
 function Clock() {
   const [time, setTime] = useState(() => new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }))
   useEffect(() => {
@@ -63,10 +90,11 @@ function Clock() {
 }
 
 export default function Domaines() {
+  const [tab, setTab] = useState('seo') // 'seo' | 'revente'
   const [domaines, setDomaines] = useState([])
+  const [counts, setCounts] = useState({ seo: 0, revente: 0 })
   const [loading, setLoading] = useState(true)
   const [filtreStatut, setFiltreStatut] = useState('tous')
-  const [filtreSirene, setFiltreSirene] = useState(false)
   const [filtrePrudence, setFiltrePrudence] = useState(false)
   const [filtreFavoris, setFiltreFavoris] = useState(false)
   const [scoreMin, setScoreMin] = useState(0)
@@ -76,6 +104,16 @@ export default function Domaines() {
   const pollRef = useRef(null)
   const navigate = useNavigate()
 
+  const fetchCounts = useCallback(async () => {
+    const { count: c1 } = await supabase
+      .from('domains_scanned').select('id', { count: 'exact', head: true })
+      .or('sirene_actif.is.false,sirene_nom_correspond.is.false')
+    const { count: c2 } = await supabase
+      .from('domains_scanned').select('id', { count: 'exact', head: true })
+      .eq('sirene_actif', true).eq('sirene_nom_correspond', true)
+    setCounts({ seo: c1 || 0, revente: c2 || 0 })
+  }, [])
+
   const fetchDomaines = useCallback(async () => {
     setLoading(true)
     let q = supabase
@@ -83,8 +121,13 @@ export default function Domaines() {
       .select('*')
       .order('prix_estime_min', { ascending: false })
 
+    if (tab === 'revente') {
+      q = q.eq('sirene_actif', true).eq('sirene_nom_correspond', true)
+    } else {
+      q = q.or('sirene_actif.is.false,sirene_nom_correspond.is.false')
+    }
+
     if (filtreStatut !== 'tous') q = q.eq('statut', filtreStatut)
-    if (filtreSirene) q = q.eq('sirene_actif', true).eq('sirene_nom_correspond', true)
     if (filtrePrudence) q = q.eq('flag_prudence', true)
     if (filtreFavoris) q = q.eq('favori', true)
     if (scoreMin > 0) q = q.gte('score', scoreMin)
@@ -92,9 +135,9 @@ export default function Domaines() {
     const { data, error } = await q
     if (!error) setDomaines(data || [])
     setLoading(false)
-  }, [filtreStatut, filtreSirene, filtrePrudence, filtreFavoris, scoreMin])
+  }, [tab, filtreStatut, filtrePrudence, filtreFavoris, scoreMin])
 
-  useEffect(() => { fetchDomaines() }, [fetchDomaines])
+  useEffect(() => { fetchDomaines(); fetchCounts() }, [fetchDomaines, fetchCounts])
 
   async function logout() {
     await supabase.auth.signOut()
@@ -139,13 +182,10 @@ export default function Domaines() {
         setScanMsg('Scan en cours — actualisation automatique…')
         setPolling(true)
 
-        // Snapshot du dernier updated_at connu avant le scan
         const lastTs = domaines[0]?.updated_at || null
-
         let attempts = 0
         pollRef.current = setInterval(async () => {
           attempts++
-          // Récupère le domaine le plus récemment mis à jour
           const { data } = await supabase
             .from('domains_scanned')
             .select('updated_at')
@@ -160,9 +200,10 @@ export default function Domaines() {
             stopPolling()
             setScanMsg(hasNew ? '✓ Nouvelles données disponibles' : '')
             fetchDomaines()
+            fetchCounts()
             if (hasNew) setTimeout(() => setScanMsg(''), 3000)
           }
-        }, 10000) // vérifie toutes les 10s
+        }, 10000)
       } else {
         setScanMsg(`ERREUR : ${json.error || 'Inconnu'}`)
       }
@@ -173,9 +214,8 @@ export default function Domaines() {
     }
   }
 
-  // Stats calculées
-  const total      = domaines.length
-  const sireneCount = domaines.filter(d => d.sirene_actif && d.sirene_nom_correspond).length
+  const total       = domaines.length
+  const enEnchere    = domaines.filter(d => d.source === 'webexpire' && d.webexpire_lien).length
   const alertCount  = domaines.filter(d => d.alerte_telegram_envoyee).length
   const valeurTotal = domaines.reduce((sum, d) => sum + (d.prix_estime_min || 0), 0)
 
@@ -218,17 +258,29 @@ export default function Domaines() {
         </div>
       )}
 
+      {/* ── Tabs : SEO (Filtre 1) / Revente (Filtre 2) ── */}
+      <div className="tabs-bar">
+        <button className={`tab-btn${tab === 'seo' ? ' active' : ''}`} onClick={() => setTab('seo')}>
+          🔗 SEO / vente de liens
+          <span className="tab-count">{counts.seo}</span>
+        </button>
+        <button className={`tab-btn${tab === 'revente' ? ' active' : ''}`} onClick={() => setTab('revente')}>
+          💰 Revente à l'ancien propriétaire
+          <span className="tab-count">{counts.revente}</span>
+        </button>
+      </div>
+
       {/* ── Stats bar ── */}
       <div className="stats-bar">
         <div className="stat-card" style={{ '--accent-color': 'var(--cyan)' }}>
-          <div className="stat-label">◈ DOMAINES SCANNÉS</div>
+          <div className="stat-label">◈ DOMAINES ({tab === 'seo' ? 'SEO' : 'REVENTE'})</div>
           <div className="stat-value">{total}</div>
-          <div className="stat-sub">dans la base</div>
+          <div className="stat-sub">dans cet onglet</div>
         </div>
         <div className="stat-card" style={{ '--accent-color': 'var(--green)' }}>
-          <div className="stat-label">✓ SIRENE ACTIF</div>
-          <div className="stat-value" style={{ color: 'var(--green)' }}>{sireneCount}</div>
-          <div className="stat-sub">entreprises actives</div>
+          <div className="stat-label">⚡ EN ENCHÈRE WEBEXPIRE</div>
+          <div className="stat-value" style={{ color: 'var(--green)' }}>{enEnchere}</div>
+          <div className="stat-sub">actuellement actives</div>
         </div>
         <div className="stat-card" style={{ '--accent-color': 'var(--amber)' }}>
           <div className="stat-label">⚡ ALERTES ENVOYÉES</div>
@@ -261,14 +313,12 @@ export default function Domaines() {
 
         <span className="filter-sep" />
 
-        <label className="filter-check">
-          <input type="checkbox" checked={filtreSirene} onChange={e => setFiltreSirene(e.target.checked)} />
-          SIRENE actif
-        </label>
-        <label className="filter-check">
-          <input type="checkbox" checked={filtrePrudence} onChange={e => setFiltrePrudence(e.target.checked)} />
-          🟠 Prudence
-        </label>
+        {tab === 'revente' && (
+          <label className="filter-check">
+            <input type="checkbox" checked={filtrePrudence} onChange={e => setFiltrePrudence(e.target.checked)} />
+            🟠 Prudence
+          </label>
+        )}
         <label className="filter-check">
           <input type="checkbox" checked={filtreFavoris} onChange={e => setFiltreFavoris(e.target.checked)} />
           ★ Favoris
@@ -305,115 +355,161 @@ export default function Domaines() {
             <span className="empty-title">Aucun domaine trouvé</span>
             <span className="empty-sub">Modifiez les filtres ou lancez un scan</span>
           </div>
+        ) : tab === 'seo' ? (
+          <>
+            <div className="table-head">
+              <span className="col-favori"></span>
+              <span className="col-domain">DOMAINE</span>
+              <span className="col-enchere">ENCHÈRE WEBEXPIRE</span>
+              <span className="col-metrics">TF · RD · TRAFIC · KW</span>
+              <span className="col-presence">PRÉSENCE WEB</span>
+              <span className="col-prix">EST. REVENTE</span>
+              <span className="col-score">SCORE</span>
+              <span className="col-statut">STATUT</span>
+            </div>
+
+            {domaines.map((d, i) => (
+              <div
+                key={d.id}
+                className="table-row"
+                style={{ '--row-color': d.score >= 60 ? 'var(--cyan)' : 'var(--text-3)', animationDelay: `${i * 20}ms` }}
+                onClick={() => navigate(`/domaines/${d.id}`)}
+              >
+                <div className="col-favori">
+                  <button
+                    className={`favori-btn${d.favori ? ' active' : ''}`}
+                    onClick={e => toggleFavori(e, d)}
+                    title={d.favori ? 'Retirer des favoris' : 'Ajouter aux favoris (surveillance temps réel)'}
+                  >
+                    {d.favori ? '★' : '☆'}
+                  </button>
+                </div>
+
+                <div className="col-domain">
+                  <span className="domain-name">{d.domain}</span>
+                  <span className="domain-src">{d.source || 'EDN'}</span>
+                </div>
+
+                <div className="col-enchere"><EnchereCell d={d} /></div>
+
+                <div className="col-metrics">
+                  <div className="metrics-line">
+                    <span>TF <span className="metric-val">{d.trust_flow ?? '—'}</span></span>
+                    <span>RD <span className="metric-val">{d.ref_domains ?? '—'}</span></span>
+                    <span>TR <span className="metric-val">{d.webexpire_trafic ?? '—'}</span></span>
+                    <span>KW <span className="metric-val">{d.webexpire_mots_cles ?? '—'}</span></span>
+                  </div>
+                </div>
+
+                <div className="col-presence"><PresenceCell d={d} /></div>
+
+                <div className="col-prix">
+                  {d.prix_estime_min ? (
+                    <>
+                      <span className="price-value">{d.prix_estime_min}€</span>
+                      <span className="price-range">— {d.prix_estime_max}€</span>
+                    </>
+                  ) : (
+                    <span style={{ color: 'var(--text-3)' }}>—</span>
+                  )}
+                </div>
+
+                <div className="col-score">
+                  <ScoreMini score={d.score} />
+                </div>
+
+                <div className="col-statut">
+                  <StatutBadge statut={d.statut} />
+                </div>
+              </div>
+            ))}
+          </>
         ) : (
           <>
             <div className="table-head">
               <span className="col-favori"></span>
               <span className="col-domain">DOMAINE</span>
-              <span className="col-metrics">TF · CF · DA · RD</span>
-              <span className="col-prix">PRIX ESTIMÉ</span>
-              <span className="col-score">SCORE</span>
               <span className="col-sirene">SIRENE</span>
+              <span className="col-dirigeant">DIRIGEANT</span>
+              <span className="col-enchere">ENCHÈRE WEBEXPIRE</span>
+              <span className="col-mail">MAIL ANCIEN PROPRIO</span>
               <span className="col-drop">DROP</span>
+              <span className="col-prix">EST. REVENTE</span>
               <span className="col-statut">STATUT</span>
             </div>
 
-            {domaines.map((d, i) => {
-              const sirene_ok = d.sirene_actif && d.sirene_nom_correspond
-              const rowColor = d.flag_prudence
-                ? 'var(--amber)'
-                : sirene_ok
-                ? 'var(--green)'
-                : d.score >= 60
-                ? 'var(--cyan)'
-                : 'var(--text-3)'
+            {domaines.map((d, i) => (
+              <div
+                key={d.id}
+                className="table-row"
+                style={{ '--row-color': d.flag_prudence ? 'var(--amber)' : 'var(--green)', animationDelay: `${i * 20}ms` }}
+                onClick={() => navigate(`/domaines/${d.id}`)}
+              >
+                <div className="col-favori">
+                  <button
+                    className={`favori-btn${d.favori ? ' active' : ''}`}
+                    onClick={e => toggleFavori(e, d)}
+                    title={d.favori ? 'Retirer des favoris' : 'Ajouter aux favoris (surveillance temps réel)'}
+                  >
+                    {d.favori ? '★' : '☆'}
+                  </button>
+                </div>
 
-              return (
-                <div
-                  key={d.id}
-                  className="table-row"
-                  style={{ '--row-color': rowColor, animationDelay: `${i * 20}ms` }}
-                  onClick={() => navigate(`/domaines/${d.id}`)}
-                >
-                  <div className="col-favori">
-                    <button
-                      className={`favori-btn${d.favori ? ' active' : ''}`}
-                      onClick={e => toggleFavori(e, d)}
-                      title={d.favori ? 'Retirer des favoris' : 'Ajouter aux favoris (surveillance temps réel)'}
-                    >
-                      {d.favori ? '★' : '☆'}
-                    </button>
-                  </div>
+                <div className="col-domain">
+                  <span className="domain-name">
+                    {d.flag_prudence ? '🟠 ' : ''}{d.domain}
+                  </span>
+                  {d.deja_reenregistre_tiers && (
+                    <span className="domain-src" style={{ color: 'var(--red)' }}>⚠ repris par un tiers</span>
+                  )}
+                </div>
 
-                  <div className="col-domain">
-                    <span className="domain-name">
-                      {d.flag_prudence ? '🟠 ' : ''}{d.domain}
-                    </span>
-                    <span className="domain-src">{d.source || 'EDN'}</span>
-                  </div>
-
-                  <div className="col-metrics">
-                    <div className="metrics-line">
-                      <span>TF <span className="metric-val">{d.trust_flow ?? '—'}</span></span>
-                      <span>CF <span className="metric-val">{d.citation_flow ?? '—'}</span></span>
-                      <span>DA <span className="metric-val">{d.domain_authority ?? '—'}</span></span>
-                      <span>RD <span className="metric-val">{d.ref_domains ?? '—'}</span></span>
-                    </div>
-                    {d.badge_surpaye && <span className="badge-surpaye">🚩 SURPAYÉ</span>}
-                  </div>
-
-                  <div className="col-prix">
-                    {d.prix_estime_min ? (
-                      <>
-                        <span className="price-value">{d.prix_estime_min}€</span>
-                        <span className="price-range">— {d.prix_estime_max}€</span>
-                      </>
-                    ) : (
-                      <span style={{ color: 'var(--text-3)' }}>—</span>
-                    )}
-                    {d.webexpire_lien && (
-                      <a
-                        href={d.webexpire_lien}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        onClick={e => e.stopPropagation()}
-                        style={{ display: 'block', fontSize: 10, color: 'var(--cyan)', marginTop: 2 }}
-                      >
-                        ↗ {d.webexpire_prix_actuel ? `${d.webexpire_prix_actuel}€ enchère` : 'voir enchère'}
-                      </a>
-                    )}
-                  </div>
-
-                  <div className="col-score">
-                    <ScoreMini score={d.score} />
-                  </div>
-
-                  <div className="col-sirene">
-                    {sirene_ok ? (
-                      <div className="sirene-tag">
-                        <span style={{ color: 'var(--green)' }}>✓</span>
-                        <span className="name">{d.sirene_denomination || 'Actif'}</span>
-                      </div>
-                    ) : (
-                      <span style={{ color: 'var(--text-3)', fontSize: 12 }}>—</span>
-                    )}
-                  </div>
-
-                  <div className="col-drop">
-                    <DropBadge
-                      jours_avant={d.jours_avant_drop}
-                      jours_post={d.jours_post_drop}
-                      source={d.source}
-                      delai={d.delai_enchere}
-                    />
-                  </div>
-
-                  <div className="col-statut">
-                    <StatutBadge statut={d.statut} />
+                <div className="col-sirene">
+                  <div className="sirene-tag">
+                    <span style={{ color: 'var(--green)' }}>✓</span>
+                    <span className="name">{d.sirene_denomination || 'Actif'}</span>
                   </div>
                 </div>
-              )
-            })}
+
+                <div className="col-dirigeant" style={{ fontSize: 12, color: 'var(--text-2)' }}>
+                  {(d.dirigeant_prenom || d.dirigeant_nom)
+                    ? `${d.dirigeant_prenom || ''} ${d.dirigeant_nom || ''}`.trim()
+                    : <span style={{ color: 'var(--text-3)' }}>—</span>}
+                </div>
+
+                <div className="col-enchere"><EnchereCell d={d} /></div>
+
+                <div className="col-mail" style={{ fontSize: 11, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {d.email_contact
+                    ? <span style={{ color: 'var(--cyan)' }}>{d.email_contact}</span>
+                    : <span style={{ color: 'var(--text-3)' }}>non trouvé</span>}
+                </div>
+
+                <div className="col-drop">
+                  <DropBadge
+                    jours_avant={d.jours_avant_drop}
+                    jours_post={d.jours_post_drop}
+                    source={d.source}
+                    delai={d.delai_enchere}
+                  />
+                </div>
+
+                <div className="col-prix">
+                  {d.prix_estime_min ? (
+                    <>
+                      <span className="price-value">{d.prix_estime_min}€</span>
+                      <span className="price-range">— {d.prix_estime_max}€</span>
+                    </>
+                  ) : (
+                    <span style={{ color: 'var(--text-3)' }}>—</span>
+                  )}
+                </div>
+
+                <div className="col-statut">
+                  <StatutBadge statut={d.statut} />
+                </div>
+              </div>
+            ))}
           </>
         )}
       </div>
