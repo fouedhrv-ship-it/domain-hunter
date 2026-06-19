@@ -54,7 +54,9 @@ create table if not exists domains_scanned (
   webexpire_visites int,
   webexpire_trafic int,
   webexpire_mots_cles int,
-  webexpire_nb int
+  webexpire_nb int,
+  badge_surpaye boolean default false,
+  expiry_date timestamptz
 );
 
 -- Sécurité RLS : seuls les utilisateurs connectés peuvent lire/écrire

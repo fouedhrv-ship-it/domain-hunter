@@ -1159,11 +1159,19 @@ def supabase_headers() -> dict:
         "Prefer": "resolution=merge-duplicates"
     }
 
+# Champs internes au pipeline, jamais persistés (pas de colonne Supabase
+# correspondante — PostgREST rejette tout l'insert si une clé inconnue est
+# présente, même si sa valeur est null).
+_CHAMPS_INTERNES = {"drop_date_edn"}
+
 def upsert_domain(domain_data: dict) -> None:
     base_url = CONFIG.get("supabase_url", "")
     if not base_url or base_url.startswith("TON_"):
         return
-    payload = {k: v for k, v in domain_data.items() if not isinstance(v, datetime)}
+    payload = {
+        k: v for k, v in domain_data.items()
+        if not isinstance(v, datetime) and k not in _CHAMPS_INTERNES
+    }
     try:
         r = requests.post(
             f"{base_url}/rest/v1/domains_scanned",
