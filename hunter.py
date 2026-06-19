@@ -67,6 +67,13 @@ def normalise(texte: str) -> str:
     texte = unicodedata.normalize("NFKD", texte.lower()).encode("ascii", "ignore").decode()
     return re.sub(r"[^a-z0-9]", "", texte)
 
+def mots_significatifs(texte: str) -> set[str]:
+    """Mots normalisés (≥3 caractères) — utilisé pour comparer des noms mot à mot
+    plutôt qu'en sous-chaîne brute, qui matchait des fragments à l'intérieur d'un
+    autre mot sans rapport (ex: "go" dans "diego")."""
+    texte = unicodedata.normalize("NFKD", texte.lower()).encode("ascii", "ignore").decode()
+    return {m for m in re.findall(r"[a-z0-9]+", texte) if len(m) >= 3}
+
 def nom_vers_domaine(denomination: str, ville: str = "") -> list[str]:
     formes_juridiques = r"\b(sarl|sas|sasu|eurl|sa|sci|snc|ei|eirl|association|assoc|asso)\b"
     nom = denomination.lower().strip()
@@ -75,9 +82,14 @@ def nom_vers_domaine(denomination: str, ville: str = "") -> list[str]:
     nom = re.sub(r"[^a-z0-9\s-]", "", nom).strip()
     nom = re.sub(r"\s+", "-", nom)
     nom = re.sub(r"-+", "-", nom).strip("-")
-    if not nom:
+    if not nom or len(nom) < 4:
+        # Trop court/générique : risque élevé de tomber sur un domaine sans
+        # rapport (coïncidence de nom), surtout en dehors du namespace .fr.
         return []
-    variantes = [f"{nom}.fr", f"{nom}.com"]
+    # Uniquement .fr : un domaine .com expirant n'a aucune raison d'appartenir
+    # à une entreprise française simplement parce que le nom coïncide — n'importe
+    # qui dans le monde peut avoir enregistré ce mot par coïncidence.
+    variantes = [f"{nom}.fr"]
     if ville:
         ville_slug = re.sub(r"[^a-z0-9]", "-", unicodedata.normalize("NFKD", ville.lower()).encode("ascii", "ignore").decode()).strip("-")
         variantes.append(f"{nom}-{ville_slug}.fr")
@@ -631,7 +643,17 @@ def insee_sirene(domain: str) -> dict:
             etat = (ent.get("siege") or {}).get("etat_administratif", "")
             if etat != "A" or not denomination:
                 continue
-            if normalise(nom_recherche) in normalise(denomination) or normalise(denomination) in normalise(nom_recherche):
+            mots_domaine = mots_significatifs(nom_recherche)
+            mots_denom = mots_significatifs(denomination)
+            # Tous les mots du domaine doivent se retrouver tels quels (mot entier,
+            # pas un fragment) dans la dénomination, ou inversement pour les noms
+            # composés courts (ex: domaine "poopy" == dénomination "POOPY").
+            # Fallback en égalité stricte (sans espaces) pour les sigles courts
+            # (ex: "J C A" → mots de 1 caractère filtrés, mais "jca" == "jca").
+            match = (
+                bool(mots_domaine) and (mots_domaine.issubset(mots_denom) or mots_denom.issubset(mots_domaine))
+            ) or normalise(nom_recherche) == normalise(denomination)
+            if match:
                 return {
                     "sirene_actif": True,
                     "sirene_nom_correspond": True,
