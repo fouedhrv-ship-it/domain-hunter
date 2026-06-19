@@ -921,7 +921,7 @@ def send_telegram_alert(domain_data: dict, score: int, fourchette_prix: tuple) -
 → Négocier le rachat directement avec le nouveau titulaire \\(via WHOIS/registrar\\)
 → Procédure PARL EXPERT \\(AFNIC, ~250€\\) si atteinte aux droits de l'entreprise — voir afnic\\.fr
 → [Fiche SIRENE]({f"https://annuaire-entreprises.data.gouv.fr/rechercher?terme={sirene}"})"""
-    else:
+    elif sirene_ok:
         message = f"""{"🟠" if flag else "🎯"} *DOMAINE — Revente estimée {prix_min}–{prix_max}€*
 
 🌐 Domaine : `{domain_name}`
@@ -940,6 +940,24 @@ def send_telegram_alert(domain_data: dict, score: int, fourchette_prix: tuple) -
 → [Racheter sur OVH](https://www.ovhcloud.com/fr/domains/)
 → [Rechercher sur Gandi](https://www.gandi.net/fr/domain/suggest?search={domain_name})
 → [Fiche SIRENE](https://annuaire-entreprises.data.gouv.fr/rechercher?terme={sirene})
+
+📎 Max 2 plateformes de backorder par domaine."""
+    else:
+        # Filtre 1 — pur SEO/vente de liens, aucune entreprise active trouvée :
+        # pas de lignes SIRENE/Dirigeant/INPI qui ne servent à rien ici.
+        message = f"""🎯 *DOMAINE SEO — Revente estimée {prix_min}–{prix_max}€*
+
+🌐 Domaine : `{domain_name}`
+📅 Drop dans : {days_left} jours
+📊 Score : {score}/100
+📸 Wayback : {snapshots} snapshots
+🔗 Backlinks : {rd} RD, score d'autorité {pr}/10
+{timing_note}
+
+📌 *Actions :*
+→ [Racheter sur WebExpire](https://www.webexpire.fr/encheres)
+→ [Racheter sur OVH](https://www.ovhcloud.com/fr/domains/)
+→ [Rechercher sur Gandi](https://www.gandi.net/fr/domain/suggest?search={domain_name})
 
 📎 Max 2 plateformes de backorder par domaine."""
 
