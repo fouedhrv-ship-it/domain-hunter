@@ -1296,6 +1296,22 @@ def enrichir_domaine(domain: str, pre_enriched: dict = None) -> Optional[dict]:
 
     return domain_data
 
+def en_enchere_active(domain_data: dict) -> bool:
+    """Vrai uniquement si le domaine est réellement en enchère/backorder actif —
+    pas juste listé avec une date whois encore lointaine (ex: CatchDoms 365j)."""
+    source = domain_data.get("source")
+    if source == "webexpire":
+        return bool(domain_data.get("webexpire_lien"))
+    if source == "catchdoms":
+        a_une_enchere = bool(
+            domain_data.get("catchdoms_auction_end_date")
+            or domain_data.get("catchdoms_max_bid")
+            or domain_data.get("catchdoms_bids_count")
+        )
+        deja_expire_ou_imminent = (domain_data.get("days_until_drop") or 0) <= 0
+        return a_une_enchere and deja_expire_ou_imminent
+    return False
+
 def run():
     log.info("=== Domain Hunter démarré ===")
     stats = {"collectes": 0, "apres_filtre": 0, "en_base": 0, "alertes": 0}
@@ -1336,7 +1352,9 @@ def run():
                 continue
 
             # Filtre temporel post-RDAP :
-            # - WebExpire/CatchDoms → toujours garder (déjà en enchère/réenregistrés, imminents)
+            # - WebExpire/CatchDoms → uniquement si réellement en enchère active (sinon
+            #   un domaine CatchDoms avec un whois encore valide 365j passait quand même,
+            #   ce qui n'a rien à voir avec une enchère).
             # - Filtre 2 (entreprise active) → toujours garder, même déjà ré-enregistré par
             #   un tiers : c'est alors une opportunité de négociation/recours légal (pastille
             #   orange), pas un backorder classique.
@@ -1346,7 +1364,13 @@ def run():
             days_until = domain_data.get("days_until_drop")
             jours_post = domain_data.get("jours_post_drop", 0) or 0
             sirene_ok = domain_data.get("sirene_actif") and domain_data.get("sirene_nom_correspond")
-            if source not in ("webexpire", "catchdoms") and not sirene_ok and days_until is not None:
+            if sirene_ok:
+                pass
+            elif source in ("webexpire", "catchdoms"):
+                if not en_enchere_active(domain_data):
+                    log.debug(f"Ignoré {domain}: pas d'enchère active ({source})")
+                    continue
+            elif days_until is not None:
                 if days_until > 60 and jours_post == 0:
                     log.debug(f"Ignoré {domain}: re-enregistré ou trop loin ({days_until}j)")
                     continue

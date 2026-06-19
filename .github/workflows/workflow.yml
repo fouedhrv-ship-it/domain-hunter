@@ -2,7 +2,7 @@ name: Domain Hunter
 
 on:
   schedule:
-    - cron: '*/15 * * * *'  # scan principal : CatchDoms + WebExpire
+    - cron: '0 */3 * * *'   # scan principal : CatchDoms + WebExpire (toutes les 3h)
     - cron: '0 6 * * *'     # EDN — matin
     - cron: '0 18 * * *'    # EDN — soir
     - cron: '*/30 * * * *'  # surveillance des favoris (prix, enchère, drop)
@@ -15,10 +15,10 @@ jobs:
   hunt:
     name: Scan domaines
     runs-on: ubuntu-latest
-    # Ne tourne pas sur push, ni sur les créneaux dédiés à EDN
+    # Ne tourne pas sur push, ni sur les créneaux dédiés à EDN/favoris
     if: >
       github.event_name != 'push' &&
-      (github.event_name != 'schedule' || github.event.schedule == '*/15 * * * *')
+      (github.event_name != 'schedule' || github.event.schedule == '0 */3 * * *')
 
     steps:
       - uses: actions/checkout@v3
