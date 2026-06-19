@@ -101,6 +101,7 @@ export default function Domaines() {
   const [scanning, setScanning] = useState(false)
   const [scanMsg, setScanMsg] = useState('')
   const [polling, setPolling] = useState(false)
+  const [resetting, setResetting] = useState(false)
   const pollRef = useRef(null)
   const navigate = useNavigate()
 
@@ -141,6 +142,26 @@ export default function Domaines() {
 
   async function logout() {
     await supabase.auth.signOut()
+  }
+
+  async function resetDomaines() {
+    if (!window.confirm('Supprimer TOUS les domaines de la base ? Cette action est irréversible.')) return
+    if (!window.confirm('Vraiment sûr ? Tout l\'historique de scan sera perdu définitivement.')) return
+
+    setResetting(true)
+    setScanMsg('')
+    try {
+      const { error } = await supabase.from('domains_scanned').delete().not('id', 'is', null)
+      if (error) throw error
+      setScanMsg('✓ Base vidée')
+      setDomaines([])
+      setCounts({ seo: 0, revente: 0 })
+      setTimeout(() => setScanMsg(''), 3000)
+    } catch (e) {
+      setScanMsg(`ERREUR : ${e.message}`)
+    } finally {
+      setResetting(false)
+    }
   }
 
   async function toggleFavori(e, d) {
@@ -242,6 +263,11 @@ export default function Domaines() {
         <button onClick={lancerScan} disabled={scanning} className="scan-btn">
           <span className="scan-btn-icon">{scanning ? '⟳' : '▶'}</span>
           <span className="scan-btn-label">{scanning ? 'Scan…' : 'Scanner'}</span>
+        </button>
+
+        <button onClick={resetDomaines} disabled={resetting} className="reset-btn" title="Vider tous les domaines de la base">
+          <span className="scan-btn-icon">{resetting ? '⟳' : '🗑'}</span>
+          <span className="scan-btn-label">{resetting ? 'Suppression…' : 'Vider'}</span>
         </button>
 
         <button onClick={logout} className="logout-btn">

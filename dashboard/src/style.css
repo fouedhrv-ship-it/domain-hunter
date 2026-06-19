@@ -420,6 +420,31 @@ body::before {
 }
 .logout-btn:hover { border-color: rgba(244,63,94,0.4); color: var(--red); }
 
+.reset-btn {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 14px;
+  background: none;
+  color: var(--text-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: border-color 0.2s, color 0.2s, background 0.2s;
+  flex-shrink: 0;
+}
+.reset-btn:not(:disabled):hover {
+  border-color: rgba(244,63,94,0.4);
+  color: var(--red);
+  background: rgba(244,63,94,0.06);
+}
+.reset-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
 /* ── Scan message ──────────────────────────────────────── */
 .scan-msg {
   display: flex;
@@ -1103,6 +1128,6 @@ body::before {
   .stats-bar { grid-template-columns: 1fr 1fr; }
   .stat-card { padding: 10px 14px; }
   .stat-value { font-size: 20px; }
-  .scan-btn { padding: 6px 10px; font-size: 10px; }
-  .scan-btn .scan-btn-label { display: none; }
+  .scan-btn, .reset-btn { padding: 6px 10px; font-size: 10px; }
+  .scan-btn .scan-btn-label, .reset-btn .scan-btn-label { display: none; }
 }
