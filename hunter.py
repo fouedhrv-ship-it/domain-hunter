@@ -542,6 +542,46 @@ def wayback_snapshots(domain: str) -> dict:
         log.debug(f"Wayback {domain}: {e}")
         return {"wayback_snapshots": 0, "date_derniere_archive": None}
 
+EMAIL_REGEX = re.compile(r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+")
+EMAIL_DOMAINES_IGNORES = (
+    "sentry.io", "wordpress.org", "wordpress.com", "wix.com", "godaddy.com",
+    "example.com", "domain.com", "schema.org", "w3.org", "googleapis.com",
+    "gstatic.com", "cloudflare.com", "sentry-cdn.com",
+)
+
+def extraire_email_wayback(url: str) -> Optional[str]:
+    """Cherche un email de contact dans la dernière archive Wayback Machine d'un site
+    (best-effort, gratuit — Pappers/PagesJaunes ne donnent pas d'email sans abonnement)."""
+    url_propre = url.strip().replace("https://", "").replace("http://", "").strip("/")
+    if not url_propre:
+        return None
+    try:
+        cdx = f"http://web.archive.org/cdx/search/cdx?url={url_propre}&output=json&limit=1&fl=timestamp&fastLatest=true"
+        r = requests.get(cdx, timeout=8)
+        data = r.json()
+        if len(data) < 2:
+            return None
+        timestamp = data[1][0]
+        snap_url = f"https://web.archive.org/web/{timestamp}/{url_propre}"
+        page = requests.get(snap_url, timeout=10)
+        emails = EMAIL_REGEX.findall(page.text)
+        emails = [
+            e for e in emails
+            if not any(ignore in e.lower() for ignore in EMAIL_DOMAINES_IGNORES)
+            and not e.lower().endswith((".png", ".jpg", ".gif", ".svg"))
+        ]
+        if not emails:
+            return None
+        # Préférer un email du même nom de domaine que le site (plus probable d'être le bon contact)
+        domaine_racine = url_propre.split("/")[0].replace("www.", "")
+        for e in emails:
+            if domaine_racine.lower() in e.lower():
+                return e.lower()
+        return emails[0].lower()
+    except Exception as e:
+        log.debug(f"Email wayback {url}: {e}")
+        return None
+
 # ── ÉTAPE 3C — OpenPageRank ───────────────────────────────────────────────────
 
 def openpagerank(domain: str) -> dict:
@@ -612,6 +652,7 @@ def annuaire_entreprises(nom_recherche: str, domain: str) -> dict:
             "dirigeant_nom": dirigeant_nom,
             "dirigeant_prenom": dirigeant_prenom,
             "has_autre_site": has_autre_site,
+            "site_internet": site_internet,
         }
     except Exception as e:
         log.debug(f"Annuaire entreprises {nom_recherche}: {e}")
@@ -900,21 +941,24 @@ def _envoyer_message_telegram(message: str, domain_name: str) -> None:
 
 def send_telegram_alert_revente(domain_data: dict, score: int, fourchette_prix: tuple) -> None:
     """Filtre 2 — domaine correspondant à une entreprise active : revente à l'ancien
-    propriétaire. Met en avant SIRENE, dirigeant, présence web et risque marque INPI —
-    rien de tout ça n'a de sens côté SEO pur."""
+    propriétaire. Met en avant SIRENE, dirigeant, INPI — rien de tout ça n'a de sens
+    côté SEO pur (voir send_telegram_alert_seo)."""
     domain_name = domain_data.get("domain", "")
     prix_min, prix_max = fourchette_prix
+    days_left = domain_data.get("days_until_drop", "?")
     sirene = domain_data.get("sirene_denomination", "Non trouvée")
     categorie = domain_data.get("sirene_categorie_entreprise") or "TPE/indépendant"
     dirigeant_prenom = domain_data.get("dirigeant_prenom", "")
     dirigeant_nom = domain_data.get("dirigeant_nom", "")
     dirigeant = f"{dirigeant_prenom} {dirigeant_nom}".strip() or "Madame, Monsieur"
-    has_autre_site = domain_data.get("has_autre_site", False)
-    site_note = (
-        "⚠️ Entreprise semble avoir un autre site actif — urgence réduite, prix ajusté"
-        if has_autre_site else
-        "✅ Aucun autre site détecté — entreprise sans présence web"
+    snapshots = domain_data.get("wayback_snapshots", 0)
+    presence_web = (
+        "✅ Contenu détecté \\(Common Crawl\\)"
+        if domain_data.get("common_crawl_pages", 0) > 0 else
+        "❌ Aucun contenu indexé détecté"
     )
+    email = domain_data.get("email_contact") or "non trouvé"
+
     flag = domain_data.get("flag_prudence", False)
     inpi = domain_data.get("inpi_marque_deposee", False)
     if flag:
@@ -924,44 +968,48 @@ def send_telegram_alert_revente(domain_data: dict, score: int, fourchette_prix: 
     else:
         ligne_marque = "✅ Non déposée — OK légalement"
 
+    en_enchere = domain_data.get("source") == "webexpire" and domain_data.get("webexpire_lien")
+    prix_actuel = domain_data.get("webexpire_prix_actuel") or 0
+    lien_webexpire = domain_data.get("webexpire_lien")
+
+    if en_enchere:
+        titre = "🔥 *DOMAINE EN ENCHÈRE SUR WEBEXPIRE — Opportunité de revente*"
+        ligne_enchere = "📈 Enchère sur WebExpire : ✅ Oui"
+        ligne_prix = f"💰 Prix actuel WebExpire : {prix_actuel:.2f}€"
+        action = f"→ [Voir l'enchère sur WebExpire]({lien_webexpire})"
+    else:
+        titre = "🎯 *DOMAINE DISPONIBLE — Opportunité de revente*"
+        ligne_enchere = "📈 Enchère sur WebExpire : ❌ Non \\(autre source\\)"
+        ligne_prix = "💰 Prix actuel WebExpire : non disponible"
+        action = "→ [Voir sur WebExpire](https://www.webexpire.fr/encheres)"
+
+    bonus = ""
     if domain_data.get("deja_reenregistre_tiers"):
         registrar = domain_data.get("registrar", "") or "inconnu"
-        message = f"""🟠 *DOMAINE DÉJÀ REPRIS PAR UN TIERS — Opportunité {prix_min}–{prix_max}€*
+        bonus = f"""
+
+⚠️ Ce domaine n'est plus disponible en backorder — il a déjà été ré-enregistré par un tiers \\(registrar : {registrar}\\).
+📌 *Recours légal :* procédure PARL EXPERT \\(AFNIC, ~250€\\) si atteinte aux droits de l'entreprise — voir afnic\\.fr"""
+
+    message = f"""{titre}
 
 🌐 Domaine : `{domain_name}`
-📊 Score : {score}/100
+⚖️ Marque INPI : {ligne_marque}
+📅 Date avant drop : {days_left} jours
 🏢 SIRENE : {sirene} \\({categorie}\\) — ✅ ACTIVE
 👤 Dirigeant : {dirigeant}
-🌍 Présence web : {site_note}
-🏛️ Registrar actuel : {registrar}
-⚖️ Marque INPI : {ligne_marque}
-
-⚠️ Ce domaine n'est plus disponible en backorder — il a déjà été ré-enregistré.
-
-📌 *Recours possibles :*
-→ Négocier le rachat directement avec le nouveau titulaire \\(via WHOIS/registrar\\)
-→ Procédure PARL EXPERT \\(AFNIC, ~250€\\) si atteinte aux droits de l'entreprise — voir afnic\\.fr
-→ [Fiche SIRENE](https://annuaire-entreprises.data.gouv.fr/rechercher?terme={sirene})"""
-    else:
-        days_left = domain_data.get("days_until_drop", "?")
-        message = f"""{"🟠" if flag else "🎯"} *DOMAINE — Revente estimée {prix_min}–{prix_max}€*
-
-🌐 Domaine : `{domain_name}`
-📅 Drop dans : {days_left} jours
-📊 Score : {score}/100
-🏢 SIRENE : {sirene} \\({categorie}\\) — ✅ ACTIVE
-👤 Dirigeant : {dirigeant}
-🌍 Présence web : {site_note}
-⚖️ Marque INPI : {ligne_marque}
+{ligne_enchere}
+{ligne_prix}
+🌍 Présence web : {presence_web}
+📸 Wayback : {snapshots} snapshots
 {_timing_note(days_left)}
 
-📌 *Actions :*
-→ [Racheter sur WebExpire](https://www.webexpire.fr/encheres)
-→ [Racheter sur OVH](https://www.ovhcloud.com/fr/domains/)
-→ [Rechercher sur Gandi](https://www.gandi.net/fr/domain/suggest?search={domain_name})
-→ [Fiche SIRENE](https://annuaire-entreprises.data.gouv.fr/rechercher?terme={sirene})
+📌 *Action :*
+{action}
 
-📎 Max 2 plateformes de backorder par domaine."""
+💵 *Estimation à la revente : {prix_min}–{prix_max}€*{bonus}
+
+📧 Mail de l'ancien propriétaire : {email}"""
 
     _envoyer_message_telegram(message, domain_name)
 
@@ -1180,6 +1228,14 @@ def enrichir_domaine(domain: str, pre_enriched: dict = None) -> Optional[dict]:
         nom_r = domain.rsplit(".", 1)[0].replace("-", " ")
         annuaire_data = annuaire_entreprises(nom_r, domain)
         domain_data.update(annuaire_data)
+        time.sleep(DELAY)
+
+        # D2b — Email de contact (best-effort via Wayback) : sur le domaine lui-même
+        # en priorité, sinon sur l'autre site de l'entreprise si on en a trouvé un.
+        email = extraire_email_wayback(domain)
+        if not email and domain_data.get("site_internet"):
+            email = extraire_email_wayback(domain_data["site_internet"])
+        domain_data["email_contact"] = email
         time.sleep(DELAY)
 
     # C — OpenPageRank (seulement si SIRENE actif ou potentiel SEO)
