@@ -845,122 +845,26 @@ def estimate_final_price(domain_data: dict) -> tuple[int, int]:
 
 # ── ÉTAPE 6 — Alerte Telegram ─────────────────────────────────────────────────
 
-def send_telegram_alert(domain_data: dict, score: int, fourchette_prix: tuple) -> None:
+def _timing_note(days_left) -> str:
+    try:
+        days_int = int(days_left)
+        if days_int > 0:
+            return f"📆 Pas encore tombé ({days_int}j) — backorder maintenant, contacter dans 48h après le drop"
+        jpp = abs(days_int)
+        if jpp <= 30:
+            return f"🔥 DROP RÉCENT ({jpp}j) — FENÊTRE IDÉALE, contacter maintenant"
+        elif jpp <= 90:
+            return f"⏳ Drop il y a {jpp}j — encore exploitable"
+        return f"❄️ Drop il y a {jpp}j — intérêt réduit"
+    except (ValueError, TypeError):
+        return "📆 Date de drop inconnue — contacter dès acquisition confirmée"
+
+def _envoyer_message_telegram(message: str, domain_name: str) -> None:
     token = CONFIG.get("telegram_token", "")
     chat_id = CONFIG.get("telegram_chat_id", "")
     if not token or token.startswith("TON_"):
         log.warning("Telegram non configuré, alerte ignorée.")
         return
-
-    pr = domain_data.get("page_rank", 0)
-    rd = domain_data.get("ref_domains", 0)
-    snapshots = domain_data.get("wayback_snapshots", 0)
-    sirene = domain_data.get("sirene_denomination", "Non trouvée")
-    sirene_ok = domain_data.get("sirene_actif") and domain_data.get("sirene_nom_correspond")
-    sirene_statut = "✅ ACTIVE — correspondance confirmée" if sirene_ok else "❌ Non trouvée / pas de correspondance fiable"
-    categorie = domain_data.get("sirene_categorie_entreprise") or "TPE/indépendant"
-    flag = domain_data.get("flag_prudence", False)
-    inpi = domain_data.get("inpi_marque_deposee", False)
-    deja_pris = domain_data.get("deja_reenregistre_tiers", False)
-
-    if flag:
-        ligne_marque = "🟠 MARQUE DÉPOSÉE — entreprise active derrière : approche rapide et raisonnable (pas de négociation agressive)"
-    elif inpi:
-        ligne_marque = "⚠️ MARQUE DÉPOSÉE — pas d'entreprise active identifiée, risque juridique"
-    else:
-        ligne_marque = "✅ Non déposée — OK légalement"
-
-    prix_min, prix_max = fourchette_prix
-    days_left = domain_data.get("days_until_drop", "?")
-    dirigeant_prenom = domain_data.get("dirigeant_prenom", "")
-    dirigeant_nom = domain_data.get("dirigeant_nom", "")
-    dirigeant = f"{dirigeant_prenom} {dirigeant_nom}".strip() or "Madame, Monsieur"
-    has_autre_site = domain_data.get("has_autre_site", False)
-    site_note = (
-        "⚠️ Entreprise semble avoir un autre site actif — urgence réduite, prix ajusté"
-        if has_autre_site else
-        "✅ Aucun autre site détecté — entreprise sans présence web"
-    )
-
-    try:
-        days_int = int(days_left)
-        if days_int > 0:
-            timing_note = f"📆 Pas encore tombé ({days_int}j) — backorder maintenant, contacter dans 48h après le drop"
-        else:
-            jpp = abs(days_int)
-            if jpp <= 30:
-                timing_note = f"🔥 DROP RÉCENT ({jpp}j) — FENÊTRE IDÉALE, contacter maintenant"
-            elif jpp <= 90:
-                timing_note = f"⏳ Drop il y a {jpp}j — encore exploitable"
-            else:
-                timing_note = f"❄️ Drop il y a {jpp}j — intérêt réduit, entreprise probablement reconstruite ailleurs"
-    except (ValueError, TypeError):
-        timing_note = "📆 Date de drop inconnue — contacter dès acquisition confirmée"
-
-    domain_name = domain_data.get("domain", "")
-    registrar = domain_data.get("registrar", "") or "inconnu"
-
-    if deja_pris:
-        # 🟠 Pastille orange : domaine déjà ré-enregistré par un tiers avant nous.
-        # Plus de backorder possible — c'est une opportunité de négociation avec le
-        # nouveau titulaire, ou un recours légal (procédure PARL EXPERT de l'AFNIC,
-        # ~250€, pour réclamer un .fr qui porte atteinte au nom d'une entreprise active).
-        message = f"""🟠 *DOMAINE DÉJÀ REPRIS PAR UN TIERS — Opportunité {prix_min}–{prix_max}€*
-
-🌐 Domaine : `{domain_name}`
-📊 Score : {score}/100
-🏢 SIRENE : {sirene} \\({categorie}\\) — {sirene_statut}
-👤 Dirigeant : {dirigeant}
-🌍 Présence web : {site_note}
-🏛️ Registrar actuel : {registrar}
-⚖️ Marque INPI : {ligne_marque}
-
-⚠️ Ce domaine n'est plus disponible en backorder — il a déjà été ré-enregistré.
-
-📌 *Recours possibles :*
-→ Négocier le rachat directement avec le nouveau titulaire \\(via WHOIS/registrar\\)
-→ Procédure PARL EXPERT \\(AFNIC, ~250€\\) si atteinte aux droits de l'entreprise — voir afnic\\.fr
-→ [Fiche SIRENE]({f"https://annuaire-entreprises.data.gouv.fr/rechercher?terme={sirene}"})"""
-    elif sirene_ok:
-        message = f"""{"🟠" if flag else "🎯"} *DOMAINE — Revente estimée {prix_min}–{prix_max}€*
-
-🌐 Domaine : `{domain_name}`
-📅 Drop dans : {days_left} jours
-📊 Score : {score}/100
-🏢 SIRENE : {sirene} \\({categorie}\\) — {sirene_statut}
-👤 Dirigeant : {dirigeant}
-🌍 Présence web : {site_note}
-📸 Wayback : {snapshots} snapshots
-🔗 Backlinks : {rd} RD, score d'autorité {pr}/10
-⚖️ Marque INPI : {ligne_marque}
-{timing_note}
-
-📌 *Actions :*
-→ [Racheter sur WebExpire](https://www.webexpire.fr/encheres)
-→ [Racheter sur OVH](https://www.ovhcloud.com/fr/domains/)
-→ [Rechercher sur Gandi](https://www.gandi.net/fr/domain/suggest?search={domain_name})
-→ [Fiche SIRENE](https://annuaire-entreprises.data.gouv.fr/rechercher?terme={sirene})
-
-📎 Max 2 plateformes de backorder par domaine."""
-    else:
-        # Filtre 1 — pur SEO/vente de liens, aucune entreprise active trouvée :
-        # pas de lignes SIRENE/Dirigeant/INPI qui ne servent à rien ici.
-        message = f"""🎯 *DOMAINE SEO — Revente estimée {prix_min}–{prix_max}€*
-
-🌐 Domaine : `{domain_name}`
-📅 Drop dans : {days_left} jours
-📊 Score : {score}/100
-📸 Wayback : {snapshots} snapshots
-🔗 Backlinks : {rd} RD, score d'autorité {pr}/10
-{timing_note}
-
-📌 *Actions :*
-→ [Racheter sur WebExpire](https://www.webexpire.fr/encheres)
-→ [Racheter sur OVH](https://www.ovhcloud.com/fr/domains/)
-→ [Rechercher sur Gandi](https://www.gandi.net/fr/domain/suggest?search={domain_name})
-
-📎 Max 2 plateformes de backorder par domaine."""
-
     try:
         url = f"https://api.telegram.org/bot{token}/sendMessage"
         r = requests.post(url, json={
@@ -978,6 +882,130 @@ def send_telegram_alert(domain_data: dict, score: int, fourchette_prix: tuple) -
     except Exception as e:
         log.error(f"Telegram envoi échoué pour {domain_name}: {e}")
         raise  # remonte pour que marquer_alerte_envoyee ne soit pas appelé
+
+def send_telegram_alert_revente(domain_data: dict, score: int, fourchette_prix: tuple) -> None:
+    """Filtre 2 — domaine correspondant à une entreprise active : revente à l'ancien
+    propriétaire. Met en avant SIRENE, dirigeant, présence web et risque marque INPI —
+    rien de tout ça n'a de sens côté SEO pur."""
+    domain_name = domain_data.get("domain", "")
+    prix_min, prix_max = fourchette_prix
+    sirene = domain_data.get("sirene_denomination", "Non trouvée")
+    categorie = domain_data.get("sirene_categorie_entreprise") or "TPE/indépendant"
+    dirigeant_prenom = domain_data.get("dirigeant_prenom", "")
+    dirigeant_nom = domain_data.get("dirigeant_nom", "")
+    dirigeant = f"{dirigeant_prenom} {dirigeant_nom}".strip() or "Madame, Monsieur"
+    has_autre_site = domain_data.get("has_autre_site", False)
+    site_note = (
+        "⚠️ Entreprise semble avoir un autre site actif — urgence réduite, prix ajusté"
+        if has_autre_site else
+        "✅ Aucun autre site détecté — entreprise sans présence web"
+    )
+    flag = domain_data.get("flag_prudence", False)
+    inpi = domain_data.get("inpi_marque_deposee", False)
+    if flag:
+        ligne_marque = "🟠 MARQUE DÉPOSÉE — entreprise active derrière : approche rapide et raisonnable (pas de négociation agressive)"
+    elif inpi:
+        ligne_marque = "⚠️ MARQUE DÉPOSÉE — pas d'entreprise active identifiée, risque juridique"
+    else:
+        ligne_marque = "✅ Non déposée — OK légalement"
+
+    if domain_data.get("deja_reenregistre_tiers"):
+        registrar = domain_data.get("registrar", "") or "inconnu"
+        message = f"""🟠 *DOMAINE DÉJÀ REPRIS PAR UN TIERS — Opportunité {prix_min}–{prix_max}€*
+
+🌐 Domaine : `{domain_name}`
+📊 Score : {score}/100
+🏢 SIRENE : {sirene} \\({categorie}\\) — ✅ ACTIVE
+👤 Dirigeant : {dirigeant}
+🌍 Présence web : {site_note}
+🏛️ Registrar actuel : {registrar}
+⚖️ Marque INPI : {ligne_marque}
+
+⚠️ Ce domaine n'est plus disponible en backorder — il a déjà été ré-enregistré.
+
+📌 *Recours possibles :*
+→ Négocier le rachat directement avec le nouveau titulaire \\(via WHOIS/registrar\\)
+→ Procédure PARL EXPERT \\(AFNIC, ~250€\\) si atteinte aux droits de l'entreprise — voir afnic\\.fr
+→ [Fiche SIRENE](https://annuaire-entreprises.data.gouv.fr/rechercher?terme={sirene})"""
+    else:
+        days_left = domain_data.get("days_until_drop", "?")
+        message = f"""{"🟠" if flag else "🎯"} *DOMAINE — Revente estimée {prix_min}–{prix_max}€*
+
+🌐 Domaine : `{domain_name}`
+📅 Drop dans : {days_left} jours
+📊 Score : {score}/100
+🏢 SIRENE : {sirene} \\({categorie}\\) — ✅ ACTIVE
+👤 Dirigeant : {dirigeant}
+🌍 Présence web : {site_note}
+⚖️ Marque INPI : {ligne_marque}
+{_timing_note(days_left)}
+
+📌 *Actions :*
+→ [Racheter sur WebExpire](https://www.webexpire.fr/encheres)
+→ [Racheter sur OVH](https://www.ovhcloud.com/fr/domains/)
+→ [Rechercher sur Gandi](https://www.gandi.net/fr/domain/suggest?search={domain_name})
+→ [Fiche SIRENE](https://annuaire-entreprises.data.gouv.fr/rechercher?terme={sirene})
+
+📎 Max 2 plateformes de backorder par domaine."""
+
+    _envoyer_message_telegram(message, domain_name)
+
+def send_telegram_alert_seo(domain_data: dict, score: int, fourchette_prix: tuple) -> None:
+    """Filtre 1 — domaine à potentiel SEO/vente de liens, sans entreprise active
+    identifiée. Met en avant les métriques utiles à un acheteur de liens (TF/CF/DA/RD)
+    et, si disponible, le prix d'enchère réel et le lien d'achat direct CatchDoms —
+    rien à voir avec SIRENE/dirigeant/INPI qui ne s'appliquent pas ici."""
+    domain_name = domain_data.get("domain", "")
+    prix_min, prix_max = fourchette_prix
+    rd = domain_data.get("ref_domains", 0)
+    tf = domain_data.get("trust_flow", 0)
+    cf = domain_data.get("citation_flow", 0)
+    da = domain_data.get("domain_authority", 0)
+    snapshots = domain_data.get("wayback_snapshots", 0)
+    langue = domain_data.get("language") or "?"
+    days_left = domain_data.get("days_until_drop", "?")
+
+    metriques = f"""🔗 RD : {rd} \\| TF : {tf} \\| CF : {cf} \\| DA : {da}
+📸 Wayback : {snapshots} snapshots \\| Langue : {langue}"""
+
+    max_bid = domain_data.get("catchdoms_max_bid")
+    purchase_url = domain_data.get("catchdoms_purchase_url")
+    purchase_platform = domain_data.get("catchdoms_purchase_platform")
+    bids_count = domain_data.get("catchdoms_bids_count")
+    auction_end = domain_data.get("catchdoms_auction_end_date")
+
+    if purchase_url:
+        ligne_enchere = f"💰 Enchère actuelle : {max_bid}€ \\({bids_count} enchérisseurs\\) — fin : {auction_end}"
+        actions = f"→ [Racheter sur {purchase_platform}]({purchase_url})"
+    else:
+        ligne_enchere = ""
+        actions = f"""→ [Racheter sur WebExpire](https://www.webexpire.fr/encheres)
+→ [Racheter sur OVH](https://www.ovhcloud.com/fr/domains/)
+→ [Rechercher sur Gandi](https://www.gandi.net/fr/domain/suggest?search={domain_name})"""
+
+    message = f"""🎯 *DOMAINE SEO — Revente estimée {prix_min}–{prix_max}€*
+
+🌐 Domaine : `{domain_name}`
+📊 Score : {score}/100
+{metriques}
+{ligne_enchere}
+{_timing_note(days_left)}
+
+📌 *Actions :*
+{actions}
+
+📎 Max 2 plateformes de backorder par domaine."""
+
+    _envoyer_message_telegram(message, domain_name)
+
+def send_telegram_alert(domain_data: dict, score: int, fourchette_prix: tuple) -> None:
+    """Dispatcher : route vers l'alerte Filtre 2 (revente à l'ancien propriétaire) ou
+    Filtre 1 (SEO/vente de liens) selon qu'une entreprise active correspond au domaine."""
+    sirene_ok = domain_data.get("sirene_actif") and domain_data.get("sirene_nom_correspond")
+    if sirene_ok:
+        send_telegram_alert_revente(domain_data, score, fourchette_prix)
+    else:
+        send_telegram_alert_seo(domain_data, score, fourchette_prix)
 
 # ── Supabase ──────────────────────────────────────────────────────────────────
 
