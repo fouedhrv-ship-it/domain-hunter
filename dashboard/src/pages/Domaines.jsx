@@ -130,9 +130,10 @@ export default function Domaines() {
     const { count: c1 } = await supabase
       .from('domains_scanned').select('id', { count: 'exact', head: true })
       .or('sirene_actif.is.false,sirene_nom_correspond.is.false')
+      .eq('site_etait_actif', false)
     const { count: c2 } = await supabase
       .from('domains_scanned').select('id', { count: 'exact', head: true })
-      .eq('sirene_actif', true).eq('sirene_nom_correspond', true)
+      .or('and(sirene_actif.eq.true,sirene_nom_correspond.eq.true),site_etait_actif.eq.true')
     setCounts({ seo: c1 || 0, revente: c2 || 0 })
   }, [])
 
@@ -144,9 +145,9 @@ export default function Domaines() {
       .order('prix_estime_min', { ascending: false })
 
     if (tab === 'revente') {
-      q = q.eq('sirene_actif', true).eq('sirene_nom_correspond', true)
+      q = q.or('and(sirene_actif.eq.true,sirene_nom_correspond.eq.true),site_etait_actif.eq.true')
     } else {
-      q = q.or('sirene_actif.is.false,sirene_nom_correspond.is.false')
+      q = q.or('sirene_actif.is.false,sirene_nom_correspond.is.false').eq('site_etait_actif', false)
     }
 
     if (filtreStatut !== 'tous') q = q.eq('statut', filtreStatut)
@@ -485,11 +486,14 @@ export default function Domaines() {
               <span className="col-statut">STATUT</span>
             </div>
 
-            {domaines.map((d, i) => (
+            {domaines.map((d, i) => {
+              const sireneOk = d.sirene_actif && d.sirene_nom_correspond
+              const rowColor = d.flag_prudence ? 'var(--amber)' : sireneOk ? 'var(--green)' : 'var(--blue)'
+              return (
               <div
                 key={d.id}
                 className="table-row"
-                style={{ '--row-color': d.flag_prudence ? 'var(--amber)' : 'var(--green)', animationDelay: `${i * 20}ms` }}
+                style={{ '--row-color': rowColor, animationDelay: `${i * 20}ms` }}
                 onClick={() => navigate(`/domaines/${d.id}`)}
               >
                 <div className="col-favori">
@@ -512,10 +516,17 @@ export default function Domaines() {
                 </div>
 
                 <div className="col-sirene">
-                  <div className="sirene-tag">
-                    <span style={{ color: 'var(--green)' }}>✓</span>
-                    <span className="name">{d.sirene_denomination || 'Actif'}</span>
-                  </div>
+                  {sireneOk ? (
+                    <div className="sirene-tag">
+                      <span style={{ color: 'var(--green)' }}>✓</span>
+                      <span className="name">{d.sirene_denomination || 'Actif'}</span>
+                    </div>
+                  ) : (
+                    <div className="sirene-tag" title="Société non identifiée — site actif détecté avant le drop">
+                      <span style={{ color: 'var(--blue)' }}>🌐</span>
+                      <span className="name" style={{ color: 'var(--blue)' }}>Site actif (société ?)</span>
+                    </div>
+                  )}
                 </div>
 
                 <div className="col-dirigeant" style={{ fontSize: 12, color: 'var(--text-2)' }}>
@@ -557,7 +568,8 @@ export default function Domaines() {
                   <StatutBadge statut={d.statut} />
                 </div>
               </div>
-            ))}
+              )
+            })}
           </>
         )}
       </div>

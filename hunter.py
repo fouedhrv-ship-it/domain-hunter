@@ -846,6 +846,11 @@ def calculate_score(domain_data: dict) -> tuple[int, bool]:
             score += 10
         elif categorie == "PME":
             score += 5
+    elif domain_data.get("site_etait_actif"):
+        # Pas de société identifiée nommément, mais le site avait un vrai
+        # contenu actif avant de tomber : opportunité de revente plausible,
+        # juste moins actionnable immédiatement (pas de contact direct).
+        score += 15
 
     snapshots = domain_data.get("wayback_snapshots", 0)
     if snapshots >= 50:
@@ -1031,6 +1036,12 @@ def send_telegram_alert_revente(domain_data: dict, score: int, fourchette_prix: 
     )
     email = domain_data.get("email_contact") or "non trouvé"
 
+    sirene_ok = domain_data.get("sirene_actif") and domain_data.get("sirene_nom_correspond")
+    if sirene_ok:
+        ligne_sirene = f"🏢 SIRENE : {sirene} \\({categorie}\\) — ✅ ACTIVE"
+    else:
+        ligne_sirene = "🏢 SIRENE : ⚠️ société non identifiée — site actif détecté avant le drop, ancien propriétaire à retrouver manuellement"
+
     flag = domain_data.get("flag_prudence", False)
     inpi = domain_data.get("inpi_marque_deposee", False)
     if flag:
@@ -1068,7 +1079,7 @@ def send_telegram_alert_revente(domain_data: dict, score: int, fourchette_prix: 
 🌐 Domaine : `{domain_name}`
 ⚖️ Marque INPI : {ligne_marque}
 📅 Date avant drop : {days_left} jours
-🏢 SIRENE : {sirene} \\({categorie}\\) — ✅ ACTIVE
+{ligne_sirene}
 👤 Dirigeant : {dirigeant}
 {ligne_enchere}
 {ligne_prix}
@@ -1141,9 +1152,10 @@ def send_telegram_alert_seo(domain_data: dict, score: int, fourchette_prix: tupl
 
 def send_telegram_alert(domain_data: dict, score: int, fourchette_prix: tuple) -> None:
     """Dispatcher : route vers l'alerte Filtre 2 (revente à l'ancien propriétaire) ou
-    Filtre 1 (SEO/vente de liens) selon qu'une entreprise active correspond au domaine."""
+    Filtre 1 (SEO/vente de liens). Cahier des charges : Filtre 2 = société active OU
+    site qui était actif — pas seulement les correspondances SIRENE nommées."""
     sirene_ok = domain_data.get("sirene_actif") and domain_data.get("sirene_nom_correspond")
-    if sirene_ok:
+    if sirene_ok or domain_data.get("site_etait_actif"):
         send_telegram_alert_revente(domain_data, score, fourchette_prix)
     else:
         send_telegram_alert_seo(domain_data, score, fourchette_prix)
@@ -1328,14 +1340,6 @@ def enrichir_domaine(domain: str, pre_enriched: dict = None) -> Optional[dict]:
         domain_data.update(annuaire_data)
         time.sleep(DELAY)
 
-        # D2b — Email de contact (best-effort via Wayback) : sur le domaine lui-même
-        # en priorité, sinon sur l'autre site de l'entreprise si on en a trouvé un.
-        email = extraire_email_wayback(domain)
-        if not email and domain_data.get("site_internet"):
-            email = extraire_email_wayback(domain_data["site_internet"])
-        domain_data["email_contact"] = email
-        time.sleep(DELAY)
-
     # C — OpenPageRank (seulement si SIRENE actif ou potentiel SEO)
     pr_data = openpagerank(domain)
     domain_data.update(pr_data)
@@ -1350,6 +1354,27 @@ def enrichir_domaine(domain: str, pre_enriched: dict = None) -> Optional[dict]:
     cc_data = common_crawl(domain)
     domain_data.update(cc_data)
     time.sleep(DELAY)
+
+    # E2 — Site qui était actif avant l'expiration ? (cahier des charges, Filtre 2 :
+    # "société active OU site qui était actif" — deuxième critère indépendant de la
+    # correspondance SIRENE, pour ne pas rater un ancien propriétaire qu'on n'a pas
+    # pu identifier nommément).
+    seuil_wayback = CONFIG.get("wayback_snapshots_min", 10)
+    domain_data["site_etait_actif"] = (
+        domain_data.get("common_crawl_pages", 0) > 0
+        or domain_data.get("wayback_snapshots", 0) >= seuil_wayback
+    )
+
+    # D2b — Email de contact (best-effort via Wayback) : dès qu'il y a une piste de
+    # revente (société identifiée OU site qui était actif), pas seulement en cas de
+    # correspondance SIRENE nommée — sinon on ne cherchait jamais de contact pour les
+    # domaines "site actif, société non identifiée".
+    if domain_data.get("sirene_nom_correspond") or domain_data.get("site_etait_actif"):
+        email = extraire_email_wayback(domain)
+        if not email and domain_data.get("site_internet"):
+            email = extraire_email_wayback(domain_data["site_internet"])
+        domain_data["email_contact"] = email
+        time.sleep(DELAY)
 
     # F — INPI
     nom_sans_tld = domain.rsplit(".", 1)[0] if "." in domain else domain

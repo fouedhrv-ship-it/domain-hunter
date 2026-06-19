@@ -47,6 +47,7 @@ export default function DomainDetail() {
   }
 
   const sirene_ok = domain.sirene_actif && domain.sirene_nom_correspond
+  const est_revente = sirene_ok || domain.site_etait_actif
   const score = domain.score || 0
   const scoreColor = score >= 70 ? '#22d3a8' : score >= 40 ? '#f59e0b' : '#f43f5e'
   const enEnchere = domain.source === 'webexpire' && domain.webexpire_lien
@@ -73,11 +74,11 @@ export default function DomainDetail() {
         </span>
         <span style={{
           fontSize: 10, padding: '3px 8px', borderRadius: 4, letterSpacing: '0.06em',
-          background: sirene_ok ? 'rgba(34,211,168,0.1)' : 'rgba(56,189,248,0.1)',
-          color: sirene_ok ? 'var(--green)' : 'var(--blue)',
-          border: `1px solid ${sirene_ok ? 'rgba(34,211,168,0.25)' : 'rgba(56,189,248,0.25)'}`,
+          background: est_revente ? 'rgba(34,211,168,0.1)' : 'rgba(56,189,248,0.1)',
+          color: est_revente ? 'var(--green)' : 'var(--blue)',
+          border: `1px solid ${est_revente ? 'rgba(34,211,168,0.25)' : 'rgba(56,189,248,0.25)'}`,
         }}>
-          {sirene_ok ? '💰 REVENTE' : '🔗 SEO'}
+          {est_revente ? '💰 REVENTE' : '🔗 SEO'}
         </span>
         <button
           className={`favori-btn${domain.favori ? ' active' : ''}`}
@@ -175,7 +176,7 @@ export default function DomainDetail() {
             )}
           </div>
 
-          {sirene_ok ? (
+          {est_revente ? (
             <ReventeCards domain={domain} />
           ) : (
             <SeoCards domain={domain} />
@@ -302,41 +303,67 @@ function SeoCards({ domain }) {
 
 /* ── Cartes spécifiques Filtre 2 (revente à l'ancien propriétaire) ──────── */
 function ReventeCards({ domain }) {
+  const sirene_ok = domain.sirene_actif && domain.sirene_nom_correspond
+
   return (
     <>
       {/* SIRENE */}
-      <div className="card" style={{ '--card-accent': 'var(--green)' }}>
+      <div className="card" style={{ '--card-accent': sirene_ok ? 'var(--green)' : 'var(--blue)' }}>
         <div className="card-title">
           <span className="card-title-icon">◈</span>
-          SIRENE
+          {sirene_ok ? 'SIRENE' : 'SOCIÉTÉ NON IDENTIFIÉE'}
           <span className="card-title-line" />
         </div>
-        <div style={{ color: 'var(--green)', fontWeight: 600, fontSize: 13, marginBottom: 14 }}>
-          ✓ Entreprise active — correspondance confirmée
-        </div>
-        <DataRow label="Dénomination" value={domain.sirene_denomination} />
-        <DataRow label="Catégorie" value={domain.sirene_categorie_entreprise || 'TPE/indépendant'} />
-        {(domain.dirigeant_prenom || domain.dirigeant_nom) && (
-          <DataRow
-            label="Dirigeant"
-            value={`${domain.dirigeant_prenom || ''} ${domain.dirigeant_nom || ''}`.trim()}
-          />
+        {sirene_ok ? (
+          <>
+            <div style={{ color: 'var(--green)', fontWeight: 600, fontSize: 13, marginBottom: 14 }}>
+              ✓ Entreprise active — correspondance confirmée
+            </div>
+            <DataRow label="Dénomination" value={domain.sirene_denomination} />
+            <DataRow label="Catégorie" value={domain.sirene_categorie_entreprise || 'TPE/indépendant'} />
+            {(domain.dirigeant_prenom || domain.dirigeant_nom) && (
+              <DataRow
+                label="Dirigeant"
+                value={`${domain.dirigeant_prenom || ''} ${domain.dirigeant_nom || ''}`.trim()}
+              />
+            )}
+            <DataRow
+              label="Autre site actif"
+              value={domain.has_autre_site
+                ? <span style={{ color: 'var(--amber)' }}>⚠ Oui — urgence réduite</span>
+                : <span style={{ color: 'var(--green)' }}>✓ Non</span>
+              }
+            />
+            <a
+              className="ext-link"
+              href={`https://annuaire-entreprises.data.gouv.fr/rechercher?terme=${encodeURIComponent(domain.sirene_denomination || domain.domain)}`}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              ↗ Annuaire Entreprises
+            </a>
+          </>
+        ) : (
+          <>
+            <div style={{ color: 'var(--blue)', fontWeight: 600, fontSize: 13, marginBottom: 14 }}>
+              🌐 Site actif détecté avant le drop — aucune société SIRENE ne correspond nommément
+            </div>
+            <DataRow label="Contenu Common Crawl" value={
+              domain.common_crawl_pages > 0
+                ? <span style={{ color: 'var(--green)' }}>✅ {domain.common_crawl_pages} pages</span>
+                : <span style={{ color: 'var(--text-3)' }}>—</span>
+            } />
+            <DataRow label="Snapshots Wayback" value={domain.wayback_snapshots ?? '—'} />
+            <a
+              className="ext-link"
+              href={`https://web.archive.org/web/*/${domain.domain}`}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              ↗ Explorer les archives Wayback
+            </a>
+          </>
         )}
-        <DataRow
-          label="Autre site actif"
-          value={domain.has_autre_site
-            ? <span style={{ color: 'var(--amber)' }}>⚠ Oui — urgence réduite</span>
-            : <span style={{ color: 'var(--green)' }}>✓ Non</span>
-          }
-        />
-        <a
-          className="ext-link"
-          href={`https://annuaire-entreprises.data.gouv.fr/rechercher?terme=${encodeURIComponent(domain.sirene_denomination || domain.domain)}`}
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          ↗ Annuaire Entreprises
-        </a>
       </div>
 
       {/* Marque INPI + Mail + Recours */}
