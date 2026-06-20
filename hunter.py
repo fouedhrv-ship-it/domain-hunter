@@ -366,7 +366,11 @@ def scrape_expireddomains(session: requests.Session, tld: str = "fr", pages: int
 
     for page in range(1, pages + 1):
         try:
-            params = {"start": (page - 1) * 25}
+            # fwordfr=1 : filtre EDN "Dictionary Word Domains" → ne garde que les
+            # domaines composés de mots français reconnus (exclut le gibberish).
+            # Vérifié en direct sur expiredfr/com/net : paramètre GET simple, pas
+            # de session côté serveur, donc à répéter sur chaque page paginée.
+            params = {"start": (page - 1) * 25, "fwordfr": 1}
             r = session.get(base_url, params=params, timeout=15)
             if "login" in r.url.lower() or len(r.text) < 5000:
                 log.warning(f"EDN .{tld} page {page}: session expirée ou page vide")
@@ -429,12 +433,12 @@ def scraper_expireddomains_net() -> list[dict]:
         return []
 
     tous = []
-    for tld in ["fr", "com"]:
+    for tld in ["fr", "com", "net"]:
         domaines = scrape_expireddomains(EDN_SESSION, tld=tld, pages=5)
         tous.extend(domaines)
         time.sleep(2)
 
-    log.info(f"ExpiredDomains.net : {len(tous)} domaines collectés (.fr + .com)")
+    log.info(f"ExpiredDomains.net : {len(tous)} domaines collectés (.fr + .com + .net, mots français uniquement)")
     return tous
 
 def collecter_domaines() -> list[dict]:
