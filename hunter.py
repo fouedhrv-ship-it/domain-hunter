@@ -24,6 +24,7 @@ def load_config() -> dict:
     cfg = {
         "prix_minimum_alerte": 500,
         "score_minimum_dashboard": 40,
+        "catchdoms_score_min_revente": 40,
         "tlds_autorises": [".fr", ".com", ".net"],
         "longueur_max_domaine": 15,
         "rd_max_backorder": 300,
@@ -1150,6 +1151,12 @@ def send_telegram_alert(domain_data: dict, score: int, fourchette_prix: tuple) -
     site qui était actif — pas seulement les correspondances SIRENE nommées."""
     sirene_ok = domain_data.get("sirene_actif") and domain_data.get("sirene_nom_correspond")
     if sirene_ok or domain_data.get("site_etait_actif"):
+        seuil = CONFIG.get("catchdoms_score_min_revente", 40)
+        catchdoms_score = domain_data.get("catchdoms_score") or 0
+        if catchdoms_score <= seuil:
+            domain_name = domain_data.get("domain", "")
+            log.info(f"Revente {domain_name}: score CatchDoms {catchdoms_score} <= {seuil}, alerte ignorée")
+            raise RuntimeError(f"Score CatchDoms ({catchdoms_score}) sous le seuil revente ({seuil})")
         send_telegram_alert_revente(domain_data, score, fourchette_prix)
     else:
         send_telegram_alert_seo(domain_data, score, fourchette_prix)
