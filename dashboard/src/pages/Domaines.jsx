@@ -48,8 +48,21 @@ function ScoreMini({ score }) {
   )
 }
 
-function DropBadge({ jours_avant, jours_post, source, delai, deja_repris }) {
-  if (source === 'webexpire') {
+// Reproduit en_enchere_active() côté backend (hunter.py) : vrai uniquement si
+// le domaine est réellement en enchère active, pas juste listé avec une date
+// whois lointaine.
+function estEnEnchereActive(d) {
+  if (d.source === 'webexpire') return !!d.webexpire_lien
+  if (d.source === 'catchdoms') {
+    const aUneEnchere = !!(d.catchdoms_auction_end_date || d.catchdoms_max_bid || d.catchdoms_bids_count)
+    const dejaExpireOuImminent = (d.days_until_drop ?? 0) <= 0
+    return aUneEnchere && dejaExpireOuImminent
+  }
+  return false
+}
+
+function DropBadge({ jours_avant, jours_post, source, delai, deja_repris, en_enchere }) {
+  if (en_enchere) {
     return (
       <span className="drop-badge urgent" style={{ background: 'rgba(0,245,196,0.1)', color: 'var(--cyan)', borderColor: 'rgba(0,245,196,0.3)' }}>
         ⚡ {delai || 'ENCHÈRE EN COURS'}
@@ -569,6 +582,7 @@ export default function Domaines() {
                     source={d.source}
                     delai={d.delai_enchere}
                     deja_repris={d.deja_reenregistre_tiers}
+                    en_enchere={estEnEnchereActive(d)}
                   />
                 </div>
 
