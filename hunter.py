@@ -1371,13 +1371,13 @@ def run():
     domaines_edn = collecter_domaines()
     stats["collectes"] = len(domaines_edn)
 
-    pipeline = []
     domaines_vus = set()
 
     # WebExpire + CatchDoms — on garde tous les champs déjà collectés (score,
     # TF/CF/DA, prix d'enchère, WHOIS...) au lieu d'un sous-ensemble figé. La
     # correspondance SIRENE est vérifiée plus tard dans enrichir_domaine(), en
     # lecture seule sur ces domaines réels — jamais générée à l'avance.
+    par_source: dict[str, list] = {}
     for d in domaines_edn:
         domain = d.get("domain", "")
         if not domain or domain in domaines_vus:
@@ -1385,10 +1385,21 @@ def run():
         rd = d.get("ref_domains", 0)
         if filtrer(domain, rd):
             pre_enriched = {k: v for k, v in d.items() if k != "domain"}
-            pipeline.append((domain, pre_enriched))
+            par_source.setdefault(d.get("source", "?"), []).append((domain, pre_enriched))
             domaines_vus.add(domain)
 
-    pipeline = pipeline[:MAX_DOMAINES]
+    # Intercalage round-robin entre sources : sans ça, WebExpire (qui ne liste
+    # que du .fr) remplit tout le quota MAX_DOMAINES avant que CatchDoms (qui a
+    # des .com) ait la moindre chance — c'est ce qui faisait disparaître le .com
+    # du dashboard malgré une vraie collecte en amont.
+    pipeline = []
+    listes = list(par_source.values())
+    idx = 0
+    while any(listes) and len(pipeline) < MAX_DOMAINES:
+        lst = listes[idx % len(listes)]
+        if lst:
+            pipeline.append(lst.pop(0))
+        idx += 1
     stats["apres_filtre"] = len(pipeline)
     log.info(f"Filtre : {stats['apres_filtre']} domaines à enrichir")
 
