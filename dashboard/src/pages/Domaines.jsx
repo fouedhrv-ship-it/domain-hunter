@@ -67,7 +67,7 @@ function estEnEnchereActive(d) {
 function DropBadge({ jours_avant, jours_post, source, delai, deja_repris, en_enchere }) {
   if (en_enchere) {
     return (
-      <span className="drop-badge urgent" style={{ background: 'rgba(0,245,196,0.1)', color: 'var(--cyan)', borderColor: 'rgba(0,245,196,0.3)' }}>
+      <span className="drop-badge urgent" style={{ background: 'rgba(245,158,11,0.1)', color: 'var(--amber)', borderColor: 'rgba(245,158,11,0.3)' }}>
         ⚡ {delai || 'ENCHÈRE EN COURS'}
       </span>
     )
