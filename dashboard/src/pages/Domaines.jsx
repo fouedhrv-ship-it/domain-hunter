@@ -290,7 +290,7 @@ export default function Domaines() {
   }
 
   const total       = domaines.length
-  const enEnchere    = domaines.filter(d => d.source === 'webexpire' && d.webexpire_lien).length
+  const enEnchere    = domaines.filter(estEnEnchereActive).length
   const alertCount  = domaines.filter(d => d.alerte_telegram_envoyee).length
   const valeurTotal = domaines.reduce((sum, d) => sum + (d.prix_estime_min || 0), 0)
 
@@ -358,7 +358,7 @@ export default function Domaines() {
           <div className="stat-sub">dans cet onglet</div>
         </div>
         <div className="stat-card" style={{ '--accent-color': 'var(--green)' }}>
-          <div className="stat-label">⚡ EN ENCHÈRE WEBEXPIRE</div>
+          <div className="stat-label">⚡ EN ENCHÈRE ACTIVE</div>
           <div className="stat-value" style={{ color: 'var(--green)' }}>{enEnchere}</div>
           <div className="stat-sub">actuellement actives</div>
         </div>
@@ -440,7 +440,7 @@ export default function Domaines() {
             <div className="table-head">
               <span className="col-favori"></span>
               <SortHeader label="DOMAINE" column="domain" className="col-domain" sort={sort} onSort={handleSort} />
-              <SortHeader label="ENCHÈRE WEBEXPIRE" column="webexpire_prix_actuel" className="col-enchere" sort={sort} onSort={handleSort} />
+              <SortHeader label="ENCHÈRE" column="catchdoms_max_bid" className="col-enchere" sort={sort} onSort={handleSort} />
               <SortHeader label="TF · RD · TRAFIC · KW" column="trust_flow" className="col-metrics" sort={sort} onSort={handleSort} />
               <SortHeader label="PRÉSENCE WEB" column="common_crawl_pages" className="col-presence" sort={sort} onSort={handleSort} />
               <SortHeader label="EST. REVENTE" column="prix_estime_min" className="col-prix" sort={sort} onSort={handleSort} />
@@ -511,7 +511,7 @@ export default function Domaines() {
               <SortHeader label="DOMAINE" column="domain" className="col-domain" sort={sort} onSort={handleSort} />
               <SortHeader label="SIRENE" column="sirene_denomination" className="col-sirene" sort={sort} onSort={handleSort} />
               <SortHeader label="DIRIGEANT" column="dirigeant_nom" className="col-dirigeant" sort={sort} onSort={handleSort} />
-              <SortHeader label="ENCHÈRE WEBEXPIRE" column="webexpire_prix_actuel" className="col-enchere" sort={sort} onSort={handleSort} />
+              <SortHeader label="ENCHÈRE" column="catchdoms_max_bid" className="col-enchere" sort={sort} onSort={handleSort} />
               <SortHeader label="MAIL ANCIEN PROPRIO" column="email_contact" className="col-mail" sort={sort} onSort={handleSort} />
               <SortHeader label="DROP" column="jours_avant_drop" className="col-drop" sort={sort} onSort={handleSort} />
               <SortHeader label="EST. REVENTE" column="prix_estime_min" className="col-prix" sort={sort} onSort={handleSort} />
