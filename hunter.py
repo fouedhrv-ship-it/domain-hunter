@@ -75,28 +75,6 @@ def mots_significatifs(texte: str) -> set[str]:
     texte = unicodedata.normalize("NFKD", texte.lower()).encode("ascii", "ignore").decode()
     return {m for m in re.findall(r"[a-z0-9]+", texte) if len(m) >= 3}
 
-def nom_vers_domaine(denomination: str, ville: str = "") -> list[str]:
-    formes_juridiques = r"\b(sarl|sas|sasu|eurl|sa|sci|snc|ei|eirl|association|assoc|asso)\b"
-    nom = denomination.lower().strip()
-    nom = re.sub(formes_juridiques, "", nom, flags=re.IGNORECASE)
-    nom = unicodedata.normalize("NFKD", nom).encode("ascii", "ignore").decode()
-    nom = re.sub(r"[^a-z0-9\s-]", "", nom).strip()
-    nom = re.sub(r"\s+", "-", nom)
-    nom = re.sub(r"-+", "-", nom).strip("-")
-    if not nom or len(nom) < 4:
-        # Trop court/générique : risque élevé de tomber sur un domaine sans
-        # rapport (coïncidence de nom), surtout en dehors du namespace .fr.
-        return []
-    # Uniquement .fr : un domaine .com expirant n'a aucune raison d'appartenir
-    # à une entreprise française simplement parce que le nom coïncide — n'importe
-    # qui dans le monde peut avoir enregistré ce mot par coïncidence.
-    variantes = [f"{nom}.fr"]
-    if ville:
-        ville_slug = re.sub(r"[^a-z0-9]", "-", unicodedata.normalize("NFKD", ville.lower()).encode("ascii", "ignore").decode()).strip("-")
-        variantes.append(f"{nom}-{ville_slug}.fr")
-    variantes.append(f"{nom}s.fr")
-    return variantes
-
 # ── ÉTAPE 1 — Collecte ────────────────────────────────────────────────────────
 
 # ── Source WebExpire.fr (gratuite, sans login) ────────────────────────────────
@@ -411,61 +389,14 @@ def scraper_expireddomains_net() -> list[dict]:
     log.info(f"ExpiredDomains.net : {len(tous)} domaines collectés (.fr + .com)")
     return tous
 
-def recherche_inverse_sirene() -> list[dict]:
-    """Source 0 : part de SIRENE → cherche si leur domaine expire bientôt.
-    Utilise recherche-entreprises.api.gouv.fr — gratuit, sans clé API.
-    """
-    resultats = []
-    # Cibles prioritaires : ETI/GE dans des secteurs à fort CPL
-    requetes = [
-        "categorie_entreprise:ETI activite_principale:64",   # finance
-        "categorie_entreprise:ETI activite_principale:86",   # santé
-        "categorie_entreprise:ETI activite_principale:68",   # immobilier
-        "categorie_entreprise:GE activite_principale:35",    # énergie
-        "categorie_entreprise:ETI activite_principale:62",   # informatique
-    ]
-    try:
-        for q in requetes[:3]:  # limiter à 3 requêtes par run (quota temps)
-            url = "https://recherche-entreprises.api.gouv.fr/search"
-            params = {"q": q, "per_page": 25, "page": 1}
-            r = requests.get(url, params=params, timeout=10)
-            if r.status_code != 200:
-                continue
-            data = r.json()
-            for ent in data.get("results", []):
-                denomination = ent.get("nom_raison_sociale", "") or ent.get("nom_complet", "")
-                categorie = ent.get("categorie_entreprise", "")
-                commune = (ent.get("siege") or {}).get("libelle_commune", "")
-                etat = (ent.get("siege") or {}).get("etat_administratif", "")
-                if not denomination or etat != "A":
-                    continue
-                variantes = nom_vers_domaine(denomination, commune)
-                for domaine in variantes:
-                    rdap_data = rdap_lookup(domaine)
-                    if rdap_data and rdap_data.get("expiry_date"):
-                        jours = (rdap_data["expiry_date"] - datetime.now(timezone.utc)).days
-                        if 0 < jours < 60:
-                            resultats.append({
-                                "domain": domaine,
-                                "sirene_actif": True,
-                                "sirene_nom_correspond": True,
-                                "sirene_denomination": denomination,
-                                "sirene_categorie_entreprise": categorie,
-                                "expiry_date": rdap_data["expiry_date"].isoformat(),
-                                "days_until_drop": jours,
-                                "source": "sirene_inverse"
-                            })
-                time.sleep(DELAY)
-    except Exception as e:
-        log.warning(f"Recherche inverse SIRENE échouée: {e}")
-    return resultats
-
-def collecter_domaines() -> tuple[list[dict], list[dict]]:
-    """Retourne (domaines_bruts, domaines_sirene_enrichis).
-    Sources dans l'ordre :
+def collecter_domaines() -> list[dict]:
+    """Retourne la liste des domaines bruts collectés depuis les sources réelles
+    d'enchères/expirations (jamais générés/devinés à partir d'un nom d'entreprise) :
       1. WebExpire.fr — domaines .fr en enchères, public, sans login (~50 domaines)
       2. CatchDoms — API officielle (remplace ExpiredDomains.net, banni 2x)
-      3. SIRENE inversé — domaines générés depuis les entreprises actives
+    La correspondance SIRENE (si le nom du domaine ressemble explicitement à une
+    entreprise active) est vérifiée plus tard, en lecture seule, sur ces domaines
+    réels — jamais l'inverse.
     """
     domaines_bruts = []
 
@@ -477,14 +408,8 @@ def collecter_domaines() -> tuple[list[dict], list[dict]]:
     catchdoms = fetch_catchdoms(tld="fr") + fetch_catchdoms(tld="com")
     domaines_bruts.extend(catchdoms)
 
-    # Source 3 : recherche inversée SIRENE
-    domaines_sirene = recherche_inverse_sirene()
-
-    log.info(
-        f"Collecte : {len(webexpire)} WebExpire + {len(catchdoms)} CatchDoms "
-        f"+ {len(domaines_sirene)} SIRENE inversé = {len(domaines_bruts) + len(domaines_sirene)} total"
-    )
-    return domaines_bruts, domaines_sirene
+    log.info(f"Collecte : {len(webexpire)} WebExpire + {len(catchdoms)} CatchDoms = {len(domaines_bruts)} total")
+    return domaines_bruts
 
 # ── ÉTAPE 2 — Filtre rapide ───────────────────────────────────────────────────
 
@@ -1428,22 +1353,16 @@ def run():
     log.info("=== Domain Hunter démarré ===")
     stats = {"collectes": 0, "apres_filtre": 0, "en_base": 0, "alertes": 0}
 
-    domaines_edn, domaines_sirene = collecter_domaines()
-    stats["collectes"] = len(domaines_edn) + len(domaines_sirene)
+    domaines_edn = collecter_domaines()
+    stats["collectes"] = len(domaines_edn)
 
     pipeline = []
     domaines_vus = set()
 
-    # Source 0 : SIRENE inversé — déjà enrichis, plafonné pour ne jamais saturer
-    # le quota MAX_DOMAINES et empêcher les domaines SEO (WebExpire/CatchDoms)
-    # de passer (c'est ce qui faisait disparaître tout le Filtre 1 du dashboard).
-    MAX_SIRENE_PAR_RUN = 10
-    for d in domaines_sirene[:MAX_SIRENE_PAR_RUN]:
-        pipeline.append((d["domain"], d))
-        domaines_vus.add(d["domain"])
-
-    # Source 1 : WebExpire + CatchDoms — on garde tous les champs déjà collectés
-    # (score, TF/CF/DA, prix d'enchère, WHOIS...) au lieu d'un sous-ensemble figé.
+    # WebExpire + CatchDoms — on garde tous les champs déjà collectés (score,
+    # TF/CF/DA, prix d'enchère, WHOIS...) au lieu d'un sous-ensemble figé. La
+    # correspondance SIRENE est vérifiée plus tard dans enrichir_domaine(), en
+    # lecture seule sur ces domaines réels — jamais générée à l'avance.
     for d in domaines_edn:
         domain = d.get("domain", "")
         if not domain or domain in domaines_vus:
