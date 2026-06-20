@@ -294,23 +294,57 @@ def login_expireddomains() -> Optional[requests.Session]:
         except Exception as e:
             log.debug(f"EDN cookies Chrome: {e}")
 
-    # Stratégie 2 : cookies stockés en variables d'environnement / config
-    sessid = CONFIG.get("edn_sessid", "") or os.environ.get("EDN_SESSID", "")
-    reme   = CONFIG.get("edn_reme",   "") or os.environ.get("EDN_REME",   "")
-    if sessid or reme:
+    # Stratégie 2 : cookies stockés en variables d'environnement / config.
+    # Plusieurs comptes peuvent être déclarés (EDN_SESSID/EDN_REME, puis
+    # EDN_SESSID_2/EDN_REME_2, EDN_SESSID_3/EDN_REME_3, …) pour basculer
+    # automatiquement sur le compte suivant si le premier est banni. Ces
+    # comptes doivent être créés manuellement par toi — aucune création de
+    # compte n'est automatisée ici, on se contente d'essayer ceux fournis.
+    comptes = _comptes_edn_disponibles()
+    if not comptes:
+        log.warning("EDN : aucune méthode d'authentification disponible (EDN_SESSID/EDN_REME non configurés)")
+        return None
+
+    for idx, (sessid, reme) in enumerate(comptes, start=1):
         session = _make_edn_session()
         if sessid:
             session.cookies.set("ExpiredDomainssessid", sessid, domain="member.expireddomains.net")
         if reme:
             session.cookies.set("reme", reme, domain=".expireddomains.net")
         if _edn_session_valide(session):
-            log.info("EDN : session via cookies stockés (env/config)")
+            log.info(f"EDN : session via compte #{idx} (env/config)")
             return session
-        log.warning("EDN : cookies EDN_SESSID/EDN_REME expirés — rafraîchir les secrets GitHub")
-        return None
+        log.warning(f"EDN : compte #{idx} invalide ou banni — passage au compte suivant si disponible")
 
-    log.warning("EDN : aucune méthode d'authentification disponible (EDN_SESSID/EDN_REME non configurés)")
+    log.error(
+        f"EDN : tous les comptes configurés ({len(comptes)}) sont invalides/bannis — "
+        "crée un nouveau compte sur expireddomains.net et ajoute ses cookies dans "
+        "EDN_SESSID_N/EDN_REME_N (secrets GitHub) pour reprendre le scraping."
+    )
     return None
+
+def _comptes_edn_disponibles() -> list[tuple[str, str]]:
+    """Liste ordonnée des paires (sessid, reme) à essayer pour EDN. Le compte
+    principal vient de EDN_SESSID/EDN_REME (rétrocompat) ; des comptes de
+    secours peuvent être ajoutés via EDN_SESSID_2/EDN_REME_2, _3, etc. — créés
+    et fournis manuellement, jamais générés automatiquement."""
+    comptes: list[tuple[str, str]] = []
+
+    sessid0 = CONFIG.get("edn_sessid", "") or os.environ.get("EDN_SESSID", "")
+    reme0 = CONFIG.get("edn_reme", "") or os.environ.get("EDN_REME", "")
+    if sessid0 or reme0:
+        comptes.append((sessid0, reme0))
+
+    i = 2
+    while True:
+        sessid_i = os.environ.get(f"EDN_SESSID_{i}", "")
+        reme_i = os.environ.get(f"EDN_REME_{i}", "")
+        if not sessid_i and not reme_i:
+            break
+        comptes.append((sessid_i, reme_i))
+        i += 1
+
+    return comptes
 
 def scrape_expireddomains(session: requests.Session, tld: str = "fr", pages: int = 5) -> list[dict]:
     """

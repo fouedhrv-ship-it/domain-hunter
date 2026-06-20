@@ -4,7 +4,8 @@ on:
   schedule:
     - cron: '0 */3 * * *'   # scan principal : CatchDoms + WebExpire (toutes les 3h)
     - cron: '0 6 * * *'     # EDN — matin
-    - cron: '0 18 * * *'    # EDN — soir
+    - cron: '0 13 * * *'    # EDN — midi
+    - cron: '0 20 * * *'    # EDN — soir
     - cron: '*/30 * * * *'  # surveillance des favoris (prix, enchère, drop)
   workflow_dispatch:
   push:
@@ -43,13 +44,14 @@ jobs:
           CATCHDOMS_TOKEN: ${{ secrets.CATCHDOMS_TOKEN }}
         run: python hunter.py
 
-  # ── Scan EDN (2x/jour seulement — compte déjà banni 2x à fréquence élevée) ─
+  # ── Scan EDN (3x/jour — compte déjà banni 2x par le passé à fréquence élevée,
+  # d'où la bascule multi-comptes ci-dessous plutôt qu'un scan plus agressif) ──
   hunt-edn:
-    name: Scan EDN (2x/jour)
+    name: Scan EDN (3x/jour)
     runs-on: ubuntu-latest
     if: >
       github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'schedule' && (github.event.schedule == '0 6 * * *' || github.event.schedule == '0 18 * * *'))
+      (github.event_name == 'schedule' && (github.event.schedule == '0 6 * * *' || github.event.schedule == '0 13 * * *' || github.event.schedule == '0 20 * * *'))
 
     steps:
       - uses: actions/checkout@v3
@@ -73,6 +75,11 @@ jobs:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           EDN_SESSID: ${{ secrets.EDN_SESSID }}
           EDN_REME: ${{ secrets.EDN_REME }}
+          # Comptes de secours (créés manuellement sur expireddomains.net) —
+          # utilisés automatiquement si le compte principal est banni.
+          # Ajoute EDN_SESSID_3/EDN_REME_3, etc. si besoin de plus de comptes.
+          EDN_SESSID_2: ${{ secrets.EDN_SESSID_2 }}
+          EDN_REME_2: ${{ secrets.EDN_REME_2 }}
         run: python hunter.py edn
 
   # ── Surveillance des favoris (30 min) — prix, enchère, drop ─────────────────
