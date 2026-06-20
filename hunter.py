@@ -164,11 +164,16 @@ def scraper_webexpire() -> list[dict]:
 
 # ── Source CatchDoms (API officielle, remplace EDN — comptes bannis 2x) ───────
 
-def fetch_catchdoms(tld: str = "fr", per_page: int = 100, max_pages: int = 10) -> list[dict]:
+def fetch_catchdoms(tld: str = ".fr,.com", type_: str = "auction", rd_min: int = 2,
+                     per_page: int = 100, max_pages: int = 15) -> list[dict]:
     """
-    Collecte les domaines expirés via l'API CatchDoms (catchdoms.com/api/domains).
-    Une seule requête fournit déjà score, TF/CF/DA, RD, Wayback, WHOIS et prix
-    d'enchère — remplace le scraping fragile d'ExpiredDomains.net (banni 2x).
+    Collecte les domaines en enchère via l'API CatchDoms (catchdoms.com/api/domains).
+    Pas de paramètre "source" → agrège nativement les 20 plateformes prises en
+    charge (Dynadot, GoDaddy, DropCatch, NameShift, WebExpire, BloomUp,
+    SEO.Domains, etc.), pas seulement une plateforme par défaut.
+    type="auction" : ne garde que les domaines réellement aux enchères (pas les
+    closeouts/backorders, hors-sujet pour ce filtre).
+    rd_min=2 : seuil minimum du cahier des charges (Filtre 1 SEO, "2-3 RD").
     """
     token = CONFIG.get("catchdoms_token", "")
     if not token or token.startswith("TON_"):
@@ -182,7 +187,13 @@ def fetch_catchdoms(tld: str = "fr", per_page: int = 100, max_pages: int = 10) -
             r = requests.get(
                 "https://catchdoms.com/api/domains",
                 headers=headers,
-                params={"tld": tld, "per_page": per_page, "page": page},
+                params={
+                    "tld": tld,
+                    "type": type_,
+                    "rd_min": rd_min,
+                    "per_page": per_page,
+                    "page": page,
+                },
                 timeout=15,
             )
             if r.status_code == 429:
@@ -210,13 +221,16 @@ def fetch_catchdoms(tld: str = "fr", per_page: int = 100, max_pages: int = 10) -
                     "catchdoms_bids_count": item.get("bids_count"),
                     "catchdoms_auction_end_date": item.get("auction_end_date"),
                     "catchdoms_purchase_url": item.get("purchase_url"),
-                    "catchdoms_purchase_platform": item.get("purchase_platform"),
+                    # "source" dans la réponse API = la plateforme réelle (NameShift,
+                    # GoDaddy, WebExpire...) ; "purchase_platform" n'est pas un champ
+                    # documenté mais on le garde en repli si jamais présent.
+                    "catchdoms_purchase_platform": item.get("source") or item.get("purchase_platform"),
                     "has_gmb": item.get("has_gmb", False),
                     "language": item.get("language"),
                     "whois_expires_at": item.get("whois_expires_at"),
                     "source": "catchdoms",
                 })
-            log.info(f"CatchDoms .{tld} page {page} : {len(items)} domaines")
+            log.info(f"CatchDoms {tld} ({type_}) page {page} : {len(items)} domaines")
 
             meta = data.get("meta", {})
             last_page = meta.get("last_page", page)
@@ -224,10 +238,10 @@ def fetch_catchdoms(tld: str = "fr", per_page: int = 100, max_pages: int = 10) -
                 break
             time.sleep(0.5)
         except Exception as e:
-            log.warning(f"CatchDoms .{tld} page {page}: {e}")
+            log.warning(f"CatchDoms {tld} page {page}: {e}")
             break
 
-    log.info(f"CatchDoms : {len(domaines)} domaines .{tld} collectés")
+    log.info(f"CatchDoms : {len(domaines)} domaines {tld} ({type_}) collectés, toutes plateformes")
     return domaines
 
 EDN_SESSION: Optional[requests.Session] = None
@@ -404,8 +418,9 @@ def collecter_domaines() -> list[dict]:
     webexpire = scraper_webexpire()
     domaines_bruts.extend(webexpire)
 
-    # Source 2 : CatchDoms (API, remplace le scraping EDN)
-    catchdoms = fetch_catchdoms(tld="fr") + fetch_catchdoms(tld="com")
+    # Source 2 : CatchDoms (API, remplace le scraping EDN) — un seul appel pour
+    # .fr + .com, agrège nativement les 20 plateformes (pas de filtre "source").
+    catchdoms = fetch_catchdoms(tld=".fr,.com", type_="auction", rd_min=2)
     domaines_bruts.extend(catchdoms)
 
     log.info(f"Collecte : {len(webexpire)} WebExpire + {len(catchdoms)} CatchDoms = {len(domaines_bruts)} total")
