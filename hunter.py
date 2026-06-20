@@ -28,6 +28,7 @@ def load_config() -> dict:
         "longueur_max_domaine": 15,
         "rd_max_backorder": 300,
         "wayback_snapshots_min": 10,
+        "rd_min_seo": 2,
         "max_domaines_par_run": 350,
         "rate_limit_delay_seconds": 1,
     }
@@ -401,13 +402,11 @@ def scraper_expireddomains_net() -> list[dict]:
         log.warning("EDN : scraping désactivé (pas de session valide)")
         return []
 
-    tous = []
-    for tld in ["fr", "com"]:
-        domaines = scrape_expireddomains(EDN_SESSION, tld=tld, pages=5)
-        tous.extend(domaines)
-        time.sleep(2)
+    # Cahier des charges : "ciblé uniquement les .fr" — .com retiré (était scrapé
+    # par erreur, contraire à la consigne d'origine).
+    tous = scrape_expireddomains(EDN_SESSION, tld="fr", pages=5)
 
-    log.info(f"ExpiredDomains.net : {len(tous)} domaines collectés (.fr + .com)")
+    log.info(f"ExpiredDomains.net : {len(tous)} domaines .fr collectés")
     return tous
 
 def recherche_inverse_sirene() -> list[dict]:
@@ -1413,6 +1412,16 @@ def en_enchere_active(domain_data: dict) -> bool:
         return a_une_enchere and deja_expire_ou_imminent
     return False
 
+def respecte_seuil_seo(domain_data: dict) -> bool:
+    """Cahier des charges, Filtre 1 : 'RD minimum 2-3 RD thématisés' — ne s'applique
+    qu'aux domaines purement SEO (pas de société active, pas de site qui était actif :
+    la revente n'a pas besoin d'un profil de liens pour être pertinente)."""
+    sirene_ok = domain_data.get("sirene_actif") and domain_data.get("sirene_nom_correspond")
+    if sirene_ok or domain_data.get("site_etait_actif"):
+        return True
+    rd_min = CONFIG.get("rd_min_seo", 2)
+    return (domain_data.get("ref_domains") or 0) >= rd_min
+
 def run():
     log.info("=== Domain Hunter démarré ===")
     stats = {"collectes": 0, "apres_filtre": 0, "en_base": 0, "alertes": 0}
@@ -1490,6 +1499,10 @@ def run():
                 if jours_post > 90:
                     log.debug(f"Ignoré {domain}: tombé il y a {jours_post}j > 90j")
                     continue
+
+            if not respecte_seuil_seo(domain_data):
+                log.debug(f"Ignoré {domain}: RD insuffisant pour le SEO ({domain_data.get('ref_domains')})")
+                continue
 
             score, flag_prudence = calculate_score(domain_data)
             domain_data["score"] = score
@@ -1580,6 +1593,10 @@ def run_edn():
                 if jours_post > 90:
                     log.debug(f"Ignoré EDN {domain}: tombé il y a {jours_post}j > 90j")
                     continue
+
+            if not respecte_seuil_seo(domain_data):
+                log.debug(f"Ignoré EDN {domain}: RD insuffisant pour le SEO ({domain_data.get('ref_domains')})")
+                continue
 
             score, flag_prudence = calculate_score(domain_data)
             domain_data["score"] = score
