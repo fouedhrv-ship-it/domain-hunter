@@ -939,7 +939,16 @@ def _timing_note(days_left) -> str:
     except (ValueError, TypeError):
         return "📆 Date de drop inconnue — contacter dès acquisition confirmée"
 
+# Coupure temporaire des envois Telegram (la structure des messages — titres,
+# champs, mise en forme Markdown — est conservée intacte dans send_telegram_alert_*
+# pour pouvoir réactiver l'envoi en repassant ce flag à True).
+TELEGRAM_ENABLED = False
+
 def _envoyer_message_telegram(message: str, domain_name: str) -> None:
+    if not TELEGRAM_ENABLED:
+        log.info(f"[Telegram désactivé] Message prêt pour {domain_name} (non envoyé) :\n{message}")
+        raise RuntimeError("Telegram temporairement désactivé")
+
     token = CONFIG.get("telegram_token", "")
     chat_id = CONFIG.get("telegram_chat_id", "")
     if not token or token.startswith("TON_"):

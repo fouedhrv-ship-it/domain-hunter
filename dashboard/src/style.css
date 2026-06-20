@@ -403,6 +403,32 @@ body::before {
   animation: scan-sweep 2s linear infinite;
 }
 
+.refresh-btn {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 14px;
+  background: none;
+  color: var(--text-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: border-color 0.2s, color 0.2s, background 0.2s;
+  flex-shrink: 0;
+}
+.refresh-btn:not(:disabled):hover {
+  border-color: var(--border-hi);
+  color: var(--cyan);
+  background: rgba(0,245,196,0.06);
+}
+.refresh-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.refresh-btn .scan-btn-icon.spin { display: inline-block; animation: rotate-ring 0.8s linear infinite; }
+
 .logout-btn {
   display: flex;
   align-items: center;
@@ -647,19 +673,32 @@ body::before {
 .table-row:hover { background: rgba(0,245,196,0.03); }
 .table-row:hover::before { opacity: 1; }
 
-/* Colonnes */
-.col-favori   { flex: 0.4; padding-right: 8px; }
-.col-domain   { flex: 1.8; min-width: 0; padding-right: 16px; }
-.col-metrics  { flex: 1.3; padding-right: 16px; }
-.col-prix     { flex: 1.2; padding-right: 16px; }
-.col-score    { flex: 1; padding-right: 16px; }
-.col-sirene   { flex: 1.5; padding-right: 16px; }
-.col-drop     { flex: 0.8; padding-right: 16px; }
-.col-statut   { flex: 0.9; }
-.col-enchere  { flex: 1.2; padding-right: 16px; }
-.col-presence { flex: 1.1; padding-right: 16px; }
-.col-dirigeant{ flex: 1.3; padding-right: 16px; }
-.col-mail     { flex: 1.3; padding-right: 16px; min-width: 0; }
+/* Grilles : mêmes grid-template-columns sur .table-head et .table-row
+   pour garantir un alignement pixel-perfect quel que soit le contenu
+   (un flex item peut dépasser sa largeur proportionnelle si son contenu
+   est plus large que son flex-basis ; minmax(0, Nfr) empêche ça). */
+.cols-seo {
+  display: grid;
+  grid-template-columns: 40px minmax(0,1.8fr) minmax(0,1.2fr) minmax(0,1.3fr) minmax(0,1.1fr) minmax(0,1.2fr) minmax(0,1fr) minmax(0,0.9fr);
+}
+.cols-revente {
+  display: grid;
+  grid-template-columns: 40px minmax(0,1.8fr) minmax(0,1.5fr) minmax(0,1.3fr) minmax(0,1.2fr) minmax(0,1.3fr) minmax(0,0.8fr) minmax(0,1.2fr) minmax(0,1fr);
+}
+
+/* Colonnes (espacement uniquement, la largeur vient du grid-template-columns) */
+.col-favori   { min-width: 0; padding-right: 8px; }
+.col-domain   { min-width: 0; padding-right: 16px; }
+.col-metrics  { min-width: 0; padding-right: 16px; }
+.col-prix     { min-width: 0; padding-right: 16px; }
+.col-score    { min-width: 0; padding-right: 16px; }
+.col-sirene   { min-width: 0; padding-right: 16px; }
+.col-drop     { min-width: 0; padding-right: 16px; }
+.col-statut   { min-width: 0; }
+.col-enchere  { min-width: 0; padding-right: 16px; }
+.col-presence { min-width: 0; padding-right: 16px; }
+.col-dirigeant{ min-width: 0; padding-right: 16px; }
+.col-mail     { min-width: 0; padding-right: 16px; }
 
 .favori-btn {
   background: none;
@@ -1105,7 +1144,8 @@ body::before {
   .header-status { display: none; }
 
   /* Cards sur mobile */
-  .table-row {
+  .table-row.cols-seo, .table-row.cols-revente {
+    display: flex;
     flex-direction: column;
     align-items: flex-start;
     padding: 14px 16px;
@@ -1114,7 +1154,7 @@ body::before {
   }
   .col-favori, .col-domain, .col-metrics, .col-prix, .col-score, .col-sirene, .col-drop, .col-statut,
   .col-enchere, .col-presence, .col-dirigeant, .col-mail {
-    flex: none; width: 100%; padding-right: 0;
+    width: 100%; padding-right: 0;
   }
   .tabs-bar { padding: 8px 14px 0; }
   .col-prix .price-value { font-size: 18px; }
@@ -1128,6 +1168,6 @@ body::before {
   .stats-bar { grid-template-columns: 1fr 1fr; }
   .stat-card { padding: 10px 14px; }
   .stat-value { font-size: 20px; }
-  .scan-btn, .reset-btn { padding: 6px 10px; font-size: 10px; }
-  .scan-btn .scan-btn-label, .reset-btn .scan-btn-label { display: none; }
+  .scan-btn, .reset-btn, .refresh-btn { padding: 6px 10px; font-size: 10px; }
+  .scan-btn .scan-btn-label, .reset-btn .scan-btn-label, .refresh-btn .scan-btn-label { display: none; }
 }

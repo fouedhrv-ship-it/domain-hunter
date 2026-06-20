@@ -68,7 +68,7 @@ function DropBadge({ jours_avant, jours_post, source, delai, deja_repris, en_enc
   if (en_enchere) {
     return (
       <span className="drop-badge urgent" style={{ background: 'rgba(245,158,11,0.1)', color: 'var(--amber)', borderColor: 'rgba(245,158,11,0.3)' }}>
-        ⚡ {delai || 'ENCHÈRE EN COURS'}
+        ⚡ {delai || 'AU ENCHÈRE'}
       </span>
     )
   }
@@ -197,6 +197,17 @@ export default function Domaines() {
 
   useEffect(() => { fetchDomaines(); fetchCounts() }, [fetchDomaines, fetchCounts])
 
+  const [refreshing, setRefreshing] = useState(false)
+
+  async function refreshAll() {
+    setRefreshing(true)
+    try {
+      await Promise.all([fetchDomaines(), fetchCounts()])
+    } finally {
+      setRefreshing(false)
+    }
+  }
+
   async function logout() {
     await supabase.auth.signOut()
   }
@@ -316,6 +327,11 @@ export default function Domaines() {
 
         <div className="header-spacer" />
         <Clock />
+
+        <button onClick={refreshAll} disabled={refreshing} className="refresh-btn" title="Actualiser les données">
+          <span className={`scan-btn-icon${refreshing ? ' spin' : ''}`}>⟳</span>
+          <span className="scan-btn-label">{refreshing ? 'Actualisation…' : 'Rafraîchir'}</span>
+        </button>
 
         <button onClick={lancerScan} disabled={scanning} className="scan-btn">
           <span className="scan-btn-icon">{scanning ? '⟳' : '▶'}</span>
@@ -440,7 +456,7 @@ export default function Domaines() {
           </div>
         ) : tab === 'seo' ? (
           <>
-            <div className="table-head">
+            <div className="table-head cols-seo">
               <span className="col-favori"></span>
               <SortHeader label="DOMAINE" column="domain" className="col-domain" sort={sort} onSort={handleSort} />
               <SortHeader label="ENCHÈRE" column="catchdoms_max_bid" className="col-enchere" sort={sort} onSort={handleSort} />
@@ -454,7 +470,7 @@ export default function Domaines() {
             {domaines.map((d, i) => (
               <div
                 key={d.id}
-                className="table-row"
+                className="table-row cols-seo"
                 style={{ '--row-color': d.score >= 60 ? 'var(--cyan)' : 'var(--text-3)', animationDelay: `${i * 20}ms` }}
                 onClick={() => navigate(`/domaines/${d.id}`)}
               >
@@ -509,7 +525,7 @@ export default function Domaines() {
           </>
         ) : (
           <>
-            <div className="table-head">
+            <div className="table-head cols-revente">
               <span className="col-favori"></span>
               <SortHeader label="DOMAINE" column="domain" className="col-domain" sort={sort} onSort={handleSort} />
               <SortHeader label="SIRENE" column="sirene_denomination" className="col-sirene" sort={sort} onSort={handleSort} />
@@ -527,7 +543,7 @@ export default function Domaines() {
               return (
               <div
                 key={d.id}
-                className="table-row"
+                className="table-row cols-revente"
                 style={{ '--row-color': rowColor, animationDelay: `${i * 20}ms` }}
                 onClick={() => navigate(`/domaines/${d.id}`)}
               >
