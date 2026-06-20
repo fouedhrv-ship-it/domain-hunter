@@ -405,26 +405,17 @@ def scraper_expireddomains_net() -> list[dict]:
 
 def collecter_domaines() -> list[dict]:
     """Retourne la liste des domaines bruts collectés depuis les sources réelles
-    d'enchères/expirations (jamais générés/devinés à partir d'un nom d'entreprise) :
-      1. WebExpire.fr — domaines .fr en enchères, public, sans login (~50 domaines)
-      2. CatchDoms — API officielle (remplace ExpiredDomains.net, banni 2x)
+    d'enchères/expirations (jamais générés/devinés à partir d'un nom d'entreprise).
+    Source unique : CatchDoms (API officielle) — un seul appel pour .fr + .com,
+    agrège nativement ses 20 plateformes (Dynadot, GoDaddy, DropCatch, NameShift,
+    WebExpire, BloomUp, SEO.Domains, etc., pas de filtre "source").
     La correspondance SIRENE (si le nom du domaine ressemble explicitement à une
     entreprise active) est vérifiée plus tard, en lecture seule, sur ces domaines
     réels — jamais l'inverse.
     """
-    domaines_bruts = []
-
-    # Source 1 : WebExpire.fr (toujours disponible, sans login)
-    webexpire = scraper_webexpire()
-    domaines_bruts.extend(webexpire)
-
-    # Source 2 : CatchDoms (API, remplace le scraping EDN) — un seul appel pour
-    # .fr + .com, agrège nativement les 20 plateformes (pas de filtre "source").
     catchdoms = fetch_catchdoms(tld=".fr,.com", type_="auction", rd_min=2)
-    domaines_bruts.extend(catchdoms)
-
-    log.info(f"Collecte : {len(webexpire)} WebExpire + {len(catchdoms)} CatchDoms = {len(domaines_bruts)} total")
-    return domaines_bruts
+    log.info(f"Collecte : {len(catchdoms)} domaines CatchDoms (.fr + .com)")
+    return catchdoms
 
 # ── ÉTAPE 2 — Filtre rapide ───────────────────────────────────────────────────
 
