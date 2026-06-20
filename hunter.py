@@ -406,16 +406,22 @@ def scraper_expireddomains_net() -> list[dict]:
 def collecter_domaines() -> list[dict]:
     """Retourne la liste des domaines bruts collectés depuis les sources réelles
     d'enchères/expirations (jamais générés/devinés à partir d'un nom d'entreprise).
-    Source unique : CatchDoms (API officielle) — un seul appel pour .fr + .com,
-    agrège nativement ses 20 plateformes (Dynadot, GoDaddy, DropCatch, NameShift,
-    WebExpire, BloomUp, SEO.Domains, etc., pas de filtre "source").
+    Deux sources sans risque de bannissement, sans abonnement payant requis :
+      1. CatchDoms (API officielle, essai gratuit) — agrège déjà 20 plateformes
+         (Dynadot, GoDaddy, DropCatch, NameShift, WebExpire, BloomUp, etc.), mais
+         l'essai masque une partie des annonces du jour derrière un mur "upgrade
+         to Pro" — on récupère ce qu'il laisse passer.
+      2. WebExpire.fr (scraping direct, public, gratuit) — comble une partie du
+         manque : CatchDoms ne reflète qu'~1/3 des annonces WebExpire réelles
+         (vérifié en direct), donc le scraper direct est plus complet et gratuit.
     La correspondance SIRENE (si le nom du domaine ressemble explicitement à une
     entreprise active) est vérifiée plus tard, en lecture seule, sur ces domaines
     réels — jamais l'inverse.
     """
     catchdoms = fetch_catchdoms(tld=".fr,.com", type_="auction", rd_min=2)
-    log.info(f"Collecte : {len(catchdoms)} domaines CatchDoms (.fr + .com)")
-    return catchdoms
+    webexpire = scraper_webexpire()
+    log.info(f"Collecte : {len(catchdoms)} CatchDoms + {len(webexpire)} WebExpire = {len(catchdoms) + len(webexpire)} total")
+    return catchdoms + webexpire
 
 # ── ÉTAPE 2 — Filtre rapide ───────────────────────────────────────────────────
 
@@ -1291,9 +1297,15 @@ def enrichir_domaine(domain: str, pre_enriched: dict = None) -> Optional[dict]:
     # "société active OU site qui était actif" — deuxième critère indépendant de la
     # correspondance SIRENE, pour ne pas rater un ancien propriétaire qu'on n'a pas
     # pu identifier nommément).
+    # common_crawl() est plafonné à 5 résultats (limit=5 dans la requête) — un seul
+    # hit n'est pas un signal fiable (peut être une page parking/erreur résiduelle).
+    # CatchDoms sélectionne déjà des domaines à profil SEO/backlinks réel, donc la
+    # quasi-totalité avait au moins 1 page indexée : le seuil ">0" rendait Filtre 1
+    # (SEO) vide en pratique. Seuil relevé à "≥3 sur 5" pour un vrai signal de
+    # contenu actif, pas juste une coïncidence d'indexation.
     seuil_wayback = CONFIG.get("wayback_snapshots_min", 10)
     domain_data["site_etait_actif"] = (
-        domain_data.get("common_crawl_pages", 0) > 0
+        domain_data.get("common_crawl_pages", 0) >= 3
         or domain_data.get("wayback_snapshots", 0) >= seuil_wayback
     )
 
