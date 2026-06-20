@@ -39,6 +39,7 @@ create table if not exists domains_scanned (
   catchdoms_score int,
   catchdoms_type text,
   catchdoms_max_bid numeric,
+  catchdoms_price numeric,
   catchdoms_bids_count int,
   catchdoms_auction_end_date timestamptz,
   catchdoms_purchase_url text,

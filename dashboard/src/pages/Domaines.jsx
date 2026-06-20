@@ -117,6 +117,8 @@ function EnchereCell({ d }) {
       >
         ↗ {d.catchdoms_purchase_platform || 'CatchDoms'}
         {d.catchdoms_max_bid != null && ` · ${d.catchdoms_max_bid}€`}
+        {d.catchdoms_max_bid == null && d.catchdoms_price != null && ` · ${d.catchdoms_price}€ (prix fixe)`}
+        {d.catchdoms_type === 'closeout' && <span className="badge-surpaye" style={{ marginLeft: 6, color: 'var(--text-2)', background: 'rgba(148,163,184,0.1)', border: '1px solid rgba(148,163,184,0.25)' }}>BACKORDER</span>}
       </a>
     )
   }

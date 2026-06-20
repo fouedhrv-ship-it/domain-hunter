@@ -222,6 +222,9 @@ def fetch_catchdoms(tld: str = ".fr,.com", type_: str = "auction", rd_min: int =
                     "catchdoms_score": item.get("score") or 0,
                     "catchdoms_type": item.get("type"),
                     "catchdoms_max_bid": item.get("max_bid"),
+                    # Listings "closeout" (backorder à prix fixe, plus d'enchère
+                    # active) : pas de max_bid, le prix réel est ici.
+                    "catchdoms_price": item.get("effective_price") or item.get("price"),
                     "catchdoms_bids_count": item.get("bids_count"),
                     "catchdoms_auction_end_date": item.get("auction_end_date"),
                     "catchdoms_purchase_url": item.get("purchase_url"),
@@ -460,10 +463,19 @@ def collecter_domaines() -> list[dict]:
     entreprise active) est vérifiée plus tard, en lecture seule, sur ces domaines
     réels — jamais l'inverse.
     """
-    catchdoms = fetch_catchdoms(tld=".fr,.com", type_="auction", rd_min=2)
+    catchdoms_auction = fetch_catchdoms(tld=".fr,.com,.net", type_="auction", rd_min=2)
+    # "closeout" = backorder à prix fixe chez CatchDoms (enchère déjà terminée,
+    # plus aucune offre active, dispo à l'achat immédiat) — demandé en plus des
+    # enchères live pour le Filtre 1 SEO.
+    catchdoms_closeout = fetch_catchdoms(tld=".fr,.com,.net", type_="closeout", rd_min=2)
     webexpire = scraper_webexpire()
-    log.info(f"Collecte : {len(catchdoms)} CatchDoms + {len(webexpire)} WebExpire = {len(catchdoms) + len(webexpire)} total")
-    return catchdoms + webexpire
+    total = len(catchdoms_auction) + len(catchdoms_closeout) + len(webexpire)
+    log.info(
+        f"Collecte : {len(catchdoms_auction)} CatchDoms (auction) + "
+        f"{len(catchdoms_closeout)} CatchDoms (closeout/backorder) + "
+        f"{len(webexpire)} WebExpire = {total} total"
+    )
+    return catchdoms_auction + catchdoms_closeout + webexpire
 
 # ── ÉTAPE 2 — Filtre rapide ───────────────────────────────────────────────────
 
@@ -1443,11 +1455,15 @@ def _jours_avant_fin_enchere(domain_data: dict) -> Optional[int]:
     jours_avant_drop, qui est l'expiration WHOIS et n'a structurellement aucun
     rapport avec la fin d'une enchère (voir en_enchere_active). WebExpire ne
     fournit pas de date de fin exploitable : l'enchère y est déjà active
-    maintenant, donc 0 jour restant par convention si une enchère existe."""
+    maintenant, donc 0 jour restant par convention si une enchère existe.
+    Idem pour les listings CatchDoms "closeout" (backorder à prix fixe, plus
+    d'enchère active du tout) : disponibles à l'achat immédiat, donc 0 jour."""
     source = domain_data.get("source")
     if source == "webexpire":
         return 0 if domain_data.get("webexpire_lien") else None
     if source == "catchdoms":
+        if domain_data.get("catchdoms_type") == "closeout":
+            return 0
         fin = domain_data.get("catchdoms_auction_end_date")
         if not fin:
             return None
@@ -1460,11 +1476,22 @@ def _jours_avant_fin_enchere(domain_data: dict) -> Optional[int]:
             return None
     return None
 
+def _en_opportunite_seo(domain_data: dict) -> bool:
+    """Vrai si le domaine est une opportunité d'achat SEO immédiate : enchère
+    active (CatchDoms/WebExpire, voir en_enchere_active) OU listing CatchDoms
+    "closeout" (backorder à prix fixe, plus d'enchère mais achetable tout de
+    suite — pas couvert par en_enchere_active qui exige un vrai signal de
+    bidding)."""
+    if domain_data.get("source") == "catchdoms" and domain_data.get("catchdoms_type") == "closeout":
+        return True
+    return en_enchere_active(domain_data)
+
 def eligible_seo(domain_data: dict) -> tuple[bool, Optional[int]]:
     """Filtre 1 (SEO/vente de liens), totalement indépendant de SIRENE — un domaine
     peut donc apparaître à la fois en SEO et en Revente. Critères obligatoires :
-      - réellement en enchère active (toutes plateformes agrégées par CatchDoms,
-        + WebExpire scrapé en direct hors API CatchDoms)
+      - opportunité d'achat immédiate : enchère active (toutes plateformes
+        agrégées par CatchDoms, + WebExpire scrapé en direct hors API
+        CatchDoms) OU backorder à prix fixe ("closeout" CatchDoms)
       - RD (Referring Domains) entre rd_min_seo et rd_max_backorder (2–300)
       - TF (Trust Flow) entre tf_min_seo et tf_max_seo (20–30)
       - ≤ jours_max_enchere_seo jours restants avant la fin de l'enchère (10)
@@ -1474,7 +1501,7 @@ def eligible_seo(domain_data: dict) -> tuple[bool, Optional[int]]:
     """
     jours_restants = _jours_avant_fin_enchere(domain_data)
 
-    if not en_enchere_active(domain_data):
+    if not _en_opportunite_seo(domain_data):
         return False, jours_restants
 
     rd = domain_data.get("ref_domains") or 0
