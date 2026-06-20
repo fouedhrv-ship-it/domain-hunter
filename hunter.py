@@ -907,6 +907,15 @@ def estimate_final_price(domain_data: dict) -> tuple[int, int]:
         )
         if domain_data.get("has_autre_site"):
             fourchette = (int(fourchette[0] * 0.7), int(fourchette[1] * 0.7))
+
+        # Le prix de l'enchère réelle (un tiers se bat déjà pour ce domaine) est un
+        # signal de valeur bien plus fort que la fourchette théorique par taille
+        # d'entreprise — sans ça on pouvait afficher "300–800€" sur un domaine déjà
+        # enchéri à 15 000€ par un repreneur, ce qui n'a aucun sens.
+        prix_marche = domain_data.get("catchdoms_max_bid") or domain_data.get("webexpire_prix_actuel")
+        if prix_marche and prix_marche > fourchette[1]:
+            fourchette = (int(prix_marche), int(prix_marche * 1.5))
+
         return fourchette
 
     fourchette_seo = estimate_sale_price_seo(domain_data)
