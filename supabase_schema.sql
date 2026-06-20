@@ -57,7 +57,9 @@ create table if not exists domains_scanned (
   webexpire_nb int,
   badge_surpaye boolean default false,
   expiry_date timestamptz,
-  site_etait_actif boolean default false
+  site_etait_actif boolean default false,
+  eligible_seo boolean default false,
+  jours_avant_fin_enchere int
 );
 
 -- Sécurité RLS : seuls les utilisateurs connectés peuvent lire/écrire
@@ -72,3 +74,4 @@ create index if not exists idx_domains_score on domains_scanned(score desc);
 create index if not exists idx_domains_prix on domains_scanned(prix_estime_min desc);
 create index if not exists idx_domains_statut on domains_scanned(statut);
 create index if not exists idx_domains_sirene on domains_scanned(sirene_actif, sirene_nom_correspond);
+create index if not exists idx_domains_eligible_seo on domains_scanned(eligible_seo);

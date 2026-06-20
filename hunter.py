@@ -25,6 +25,9 @@ def load_config() -> dict:
         "prix_minimum_alerte": 500,
         "score_minimum_dashboard": 40,
         "catchdoms_score_min_revente": 40,
+        "tf_min_seo": 20,
+        "tf_max_seo": 30,
+        "jours_max_enchere_seo": 10,
         "tlds_autorises": [".fr", ".com", ".net"],
         "longueur_max_domaine": 15,
         "rd_max_backorder": 300,
@@ -1435,15 +1438,65 @@ def en_enchere_active(domain_data: dict) -> bool:
         return True
     return False
 
-def respecte_seuil_seo(domain_data: dict) -> bool:
-    """Cahier des charges, Filtre 1 : 'RD minimum 2-3 RD thématisés' — ne s'applique
-    qu'aux domaines purement SEO (pas de société active, pas de site qui était actif :
-    la revente n'a pas besoin d'un profil de liens pour être pertinente)."""
-    sirene_ok = domain_data.get("sirene_actif") and domain_data.get("sirene_nom_correspond")
-    if sirene_ok or domain_data.get("site_etait_actif"):
-        return True
+def _jours_avant_fin_enchere(domain_data: dict) -> Optional[int]:
+    """Jours restants avant la FIN DE L'ENCHÈRE elle-même — distinct de
+    jours_avant_drop, qui est l'expiration WHOIS et n'a structurellement aucun
+    rapport avec la fin d'une enchère (voir en_enchere_active). WebExpire ne
+    fournit pas de date de fin exploitable : l'enchère y est déjà active
+    maintenant, donc 0 jour restant par convention si une enchère existe."""
+    source = domain_data.get("source")
+    if source == "webexpire":
+        return 0 if domain_data.get("webexpire_lien") else None
+    if source == "catchdoms":
+        fin = domain_data.get("catchdoms_auction_end_date")
+        if not fin:
+            return None
+        try:
+            fin_dt = dateutil_parser.parse(fin)
+            if fin_dt.tzinfo is None:
+                fin_dt = fin_dt.replace(tzinfo=timezone.utc)
+            return max((fin_dt - datetime.now(timezone.utc)).days, 0)
+        except Exception:
+            return None
+    return None
+
+def eligible_seo(domain_data: dict) -> tuple[bool, Optional[int]]:
+    """Filtre 1 (SEO/vente de liens), totalement indépendant de SIRENE — un domaine
+    peut donc apparaître à la fois en SEO et en Revente. Critères obligatoires :
+      - réellement en enchère active (toutes plateformes agrégées par CatchDoms,
+        + WebExpire scrapé en direct hors API CatchDoms)
+      - RD (Referring Domains) entre rd_min_seo et rd_max_backorder (2–300)
+      - TF (Trust Flow) entre tf_min_seo et tf_max_seo (20–30)
+      - ≤ jours_max_enchere_seo jours restants avant la fin de l'enchère (10)
+      - pas de spam/thématique hors-sujet détecté (blacklist, pivot PBN)
+    Retourne (éligible, jours_restants_avant_fin_enchere) — le 2e élément est
+    toujours calculé/retourné même si non éligible, pour affichage/diagnostic.
+    """
+    jours_restants = _jours_avant_fin_enchere(domain_data)
+
+    if not en_enchere_active(domain_data):
+        return False, jours_restants
+
+    rd = domain_data.get("ref_domains") or 0
     rd_min = CONFIG.get("rd_min_seo", 2)
-    return (domain_data.get("ref_domains") or 0) >= rd_min
+    rd_max = CONFIG.get("rd_max_backorder", 300)
+    if not (rd_min <= rd <= rd_max):
+        return False, jours_restants
+
+    tf = domain_data.get("trust_flow") or 0
+    tf_min = CONFIG.get("tf_min_seo", 20)
+    tf_max = CONFIG.get("tf_max_seo", 30)
+    if not (tf_min <= tf <= tf_max):
+        return False, jours_restants
+
+    jours_max = CONFIG.get("jours_max_enchere_seo", 10)
+    if jours_restants is None or not (0 <= jours_restants <= jours_max):
+        return False, jours_restants
+
+    if domain_data.get("domaine_blackliste") or domain_data.get("pivot_thematique_detecte"):
+        return False, jours_restants
+
+    return True, jours_restants
 
 def run():
     log.info("=== Domain Hunter démarré ===")
@@ -1506,30 +1559,42 @@ def run():
             days_until = domain_data.get("days_until_drop")
             jours_post = domain_data.get("jours_post_drop", 0) or 0
             sirene_ok = domain_data.get("sirene_actif") and domain_data.get("sirene_nom_correspond")
+            site_etait_actif = domain_data.get("site_etait_actif")
             deja_repris = domain_data.get("deja_reenregistre_tiers")
+
+            # Validité "Revente" (Filtre 2) — logique inchangée, basée sur le
+            # timing SIRENE/drop. Indépendante du SEO : un domaine peut valider
+            # les deux, l'un des deux, ou aucun.
+            revente_eligible = bool(sirene_ok or site_etait_actif)
+            revente_timing_ok = True
             if sirene_ok:
                 if not deja_repris:
                     if days_until is None:
-                        log.debug(f"Ignoré {domain}: SIRENE matché mais timing inconnu, pas un cas de recours")
-                        continue
-                    if days_until > 60 and jours_post == 0:
-                        continue
-                    if jours_post > 90:
-                        continue
+                        revente_timing_ok = False
+                    elif days_until > 60 and jours_post == 0:
+                        revente_timing_ok = False
+                    elif jours_post > 90:
+                        revente_timing_ok = False
             elif source in ("webexpire", "catchdoms"):
-                if not en_enchere_active(domain_data):
-                    log.debug(f"Ignoré {domain}: pas d'enchère active ({source})")
-                    continue
+                revente_timing_ok = en_enchere_active(domain_data)
             elif days_until is not None:
                 if days_until > 60 and jours_post == 0:
-                    log.debug(f"Ignoré {domain}: re-enregistré ou trop loin ({days_until}j)")
-                    continue
-                if jours_post > 90:
-                    log.debug(f"Ignoré {domain}: tombé il y a {jours_post}j > 90j")
-                    continue
+                    revente_timing_ok = False
+                elif jours_post > 90:
+                    revente_timing_ok = False
 
-            if not respecte_seuil_seo(domain_data):
-                log.debug(f"Ignoré {domain}: RD insuffisant pour le SEO ({domain_data.get('ref_domains')})")
+            # Validité "SEO" (Filtre 1) — totalement indépendante de SIRENE,
+            # voir eligible_seo(). Stockée même si False, pour transparence.
+            seo_ok, jours_enchere = eligible_seo(domain_data)
+            domain_data["eligible_seo"] = seo_ok
+            domain_data["jours_avant_fin_enchere"] = jours_enchere
+
+            if revente_eligible:
+                if not revente_timing_ok:
+                    log.debug(f"Ignoré {domain}: SIRENE/site actif matché mais timing revente invalide")
+                    continue
+            elif not seo_ok:
+                log.debug(f"Ignoré {domain}: ne remplit ni la revente (pas de société/site actif) ni le SEO")
                 continue
 
             score, flag_prudence = calculate_score(domain_data)
@@ -1614,16 +1679,32 @@ def run_edn():
             deja_repris = domain_data.get("deja_reenregistre_tiers")
             jours_post = domain_data.get("jours_post_drop", 0) or 0
             days_until = domain_data.get("days_until_drop")
+            sirene_ok = domain_data.get("sirene_actif") and domain_data.get("sirene_nom_correspond")
+            site_etait_actif = domain_data.get("site_etait_actif")
+            revente_eligible = bool(sirene_ok or site_etait_actif)
+
+            revente_timing_ok = True
             if not deja_repris and days_until is not None:
                 if days_until > 60 and jours_post == 0:
-                    log.debug(f"Ignoré EDN {domain}: re-enregistré ou trop loin ({days_until}j)")
-                    continue
-                if jours_post > 90:
-                    log.debug(f"Ignoré EDN {domain}: tombé il y a {jours_post}j > 90j")
-                    continue
+                    revente_timing_ok = False
+                elif jours_post > 90:
+                    revente_timing_ok = False
 
-            if not respecte_seuil_seo(domain_data):
-                log.debug(f"Ignoré EDN {domain}: RD insuffisant pour le SEO ({domain_data.get('ref_domains')})")
+            # EDN liste des domaines expirés (pas des enchères au sens propre) :
+            # eligible_seo() restera False ici dans l'immense majorité des cas
+            # (en_enchere_active() exige source webexpire/catchdoms), donc une
+            # correspondance EDN ne peut survivre que via le critère Revente —
+            # comportement inchangé, juste explicité.
+            seo_ok, jours_enchere = eligible_seo(domain_data)
+            domain_data["eligible_seo"] = seo_ok
+            domain_data["jours_avant_fin_enchere"] = jours_enchere
+
+            if revente_eligible:
+                if not revente_timing_ok:
+                    log.debug(f"Ignoré EDN {domain}: re-enregistré/trop loin ou tombé depuis trop longtemps")
+                    continue
+            elif not seo_ok:
+                log.debug(f"Ignoré EDN {domain}: ne remplit ni la revente ni le SEO")
                 continue
 
             score, flag_prudence = calculate_score(domain_data)

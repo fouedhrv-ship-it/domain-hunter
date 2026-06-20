@@ -162,10 +162,14 @@ export default function Domaines() {
   }
 
   const fetchCounts = useCallback(async () => {
+    // SEO et Revente ne sont plus mutuellement exclusifs : un domaine peut
+    // remplir les deux critères (ex. société active ET enchère SEO valide) et
+    // apparaître dans les deux onglets. SEO = eligible_seo (calculé côté
+    // hunter.py, indépendant de SIRENE — voir eligible_seo()). Revente =
+    // société active OU site qui était actif, inchangé.
     const { count: c1 } = await supabase
       .from('domains_scanned').select('id', { count: 'exact', head: true })
-      .or('sirene_actif.is.false,sirene_nom_correspond.is.false')
-      .eq('site_etait_actif', false)
+      .eq('eligible_seo', true)
     const { count: c2 } = await supabase
       .from('domains_scanned').select('id', { count: 'exact', head: true })
       .or('and(sirene_actif.eq.true,sirene_nom_correspond.eq.true),site_etait_actif.eq.true')
@@ -182,7 +186,7 @@ export default function Domaines() {
     if (tab === 'revente') {
       q = q.or('and(sirene_actif.eq.true,sirene_nom_correspond.eq.true),site_etait_actif.eq.true')
     } else {
-      q = q.or('sirene_actif.is.false,sirene_nom_correspond.is.false').eq('site_etait_actif', false)
+      q = q.eq('eligible_seo', true)
     }
 
     if (filtreStatut !== 'tous') q = q.eq('statut', filtreStatut)
