@@ -48,22 +48,6 @@ function ScoreMini({ score }) {
   )
 }
 
-// Reproduit en_enchere_active() côté backend (hunter.py) : vrai uniquement si
-// le domaine est réellement en enchère active, pas juste listé avec une date
-// whois lointaine.
-function estEnEnchereActive(d) {
-  if (d.source === 'webexpire') return !!d.webexpire_lien
-  if (d.source === 'catchdoms') {
-    const aUneEnchere = !!(d.catchdoms_auction_end_date || d.catchdoms_max_bid || d.catchdoms_bids_count)
-    if (!aUneEnchere) return false
-    if (d.catchdoms_auction_end_date && new Date(d.catchdoms_auction_end_date).getTime() <= Date.now()) {
-      return false // enchère déjà terminée
-    }
-    return true
-  }
-  return false
-}
-
 function DropBadge({ jours_avant, jours_post, source, delai, deja_repris, en_enchere }) {
   if (en_enchere) {
     return (
@@ -310,7 +294,7 @@ export default function Domaines() {
   }
 
   const total       = domaines.length
-  const enEnchere    = domaines.filter(estEnEnchereActive).length
+  const enEnchere    = domaines.filter(d => d.en_enchere_active).length
   const alertCount  = domaines.filter(d => d.alerte_telegram_envoyee).length
   const valeurTotal = domaines.reduce((sum, d) => sum + (d.prix_estime_min || 0), 0)
 
@@ -607,7 +591,7 @@ export default function Domaines() {
                     source={d.source}
                     delai={d.delai_enchere}
                     deja_repris={d.deja_reenregistre_tiers}
-                    en_enchere={estEnEnchereActive(d)}
+                    en_enchere={d.en_enchere_active}
                   />
                 </div>
 

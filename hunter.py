@@ -1192,81 +1192,67 @@ def supabase_headers() -> dict:
 # présente, même si sa valeur est null).
 _CHAMPS_INTERNES = {"drop_date_edn"}
 
-def upsert_domain(domain_data: dict) -> None:
+def _supabase_request(method: str, path: str, *, params: dict = None,
+                       json_body: dict = None, timeout: int = 10) -> Optional[requests.Response]:
+    """Point d'entrée unique vers PostgREST pour la table domains_scanned.
+    Centralise la résolution base_url/clé, le garde "pas configuré" et la
+    gestion d'erreurs — remplace les implémentations ad-hoc précédentes
+    (upsert_domain/domaine_deja_alerte/marquer_alerte_envoyee/...), qui
+    recopiaient chacune ce code et, pour certaines, construisaient l'URL par
+    interpolation directe au lieu de passer par `params` (donc sans
+    encodage)."""
     base_url = CONFIG.get("supabase_url", "")
     if not base_url or base_url.startswith("TON_"):
-        return
+        return None
+    try:
+        r = requests.request(
+            method, f"{base_url}/rest/v1/{path}",
+            headers=supabase_headers(), params=params, json=json_body, timeout=timeout
+        )
+        if r.status_code >= 400:
+            log.warning(f"Supabase {method} {path}: {r.status_code} {r.text[:200]}")
+            return None
+        return r
+    except Exception as e:
+        log.warning(f"Supabase {method} {path}: {e}")
+        return None
+
+def upsert_domain(domain_data: dict) -> None:
     payload = {
         k: v for k, v in domain_data.items()
         if not isinstance(v, datetime) and k not in _CHAMPS_INTERNES
     }
-    try:
-        r = requests.post(
-            f"{base_url}/rest/v1/domains_scanned",
-            headers=supabase_headers(),
-            json=payload,
-            timeout=10
-        )
-        if r.status_code not in (200, 201):
-            log.warning(f"Supabase upsert {domain_data.get('domain')}: {r.status_code} {r.text[:200]}")
-    except Exception as e:
-        log.warning(f"Supabase upsert {domain_data.get('domain')}: {e}")
+    _supabase_request("POST", "domains_scanned", json_body=payload)
 
 def domaine_deja_alerte(domain: str) -> bool:
-    base_url = CONFIG.get("supabase_url", "")
-    if not base_url or base_url.startswith("TON_"):
+    r = _supabase_request(
+        "GET", "domains_scanned",
+        params={"domain": f"eq.{domain}", "select": "alerte_telegram_envoyee"},
+    )
+    if not r:
         return False
-    key = CONFIG.get("supabase_service_key", "")
-    try:
-        r = requests.get(
-            f"{base_url}/rest/v1/domains_scanned?domain=eq.{domain}&select=alerte_telegram_envoyee",
-            headers={"apikey": key, "Authorization": f"Bearer {key}"},
-            timeout=10
-        )
-        data = r.json()
-        return data[0]["alerte_telegram_envoyee"] if data else False
-    except Exception:
-        return False
+    data = r.json()
+    return data[0]["alerte_telegram_envoyee"] if data else False
 
 def domaines_existants_recents(jours: int = 1) -> set[str]:
     """Liste les domaines déjà en base (scannés par CatchDoms/WebExpire) sur les N derniers jours.
     Sert à éviter de réenrichir un domaine déjà couvert par les sources temps réel."""
-    base_url = CONFIG.get("supabase_url", "")
-    if not base_url or base_url.startswith("TON_"):
+    depuis = (datetime.now(timezone.utc) - timedelta(days=jours)).isoformat()
+    r = _supabase_request(
+        "GET", "domains_scanned",
+        params={"date_scan": f"gte.{depuis}", "select": "domain"},
+        timeout=15,
+    )
+    if not r:
         return set()
-    key = CONFIG.get("supabase_service_key", "")
-    try:
-        depuis = (datetime.now(timezone.utc) - timedelta(days=jours)).isoformat()
-        r = requests.get(
-            f"{base_url}/rest/v1/domains_scanned",
-            params={"date_scan": f"gte.{depuis}", "select": "domain"},
-            headers={"apikey": key, "Authorization": f"Bearer {key}"},
-            timeout=15,
-        )
-        r.raise_for_status()
-        return {row["domain"] for row in r.json() if row.get("domain")}
-    except Exception as e:
-        log.warning(f"Supabase lecture domaines récents: {e}")
-        return set()
+    return {row["domain"] for row in r.json() if row.get("domain")}
 
 def marquer_alerte_envoyee(domain: str) -> None:
-    base_url = CONFIG.get("supabase_url", "")
-    if not base_url or base_url.startswith("TON_"):
-        return
-    key = CONFIG.get("supabase_service_key", "")
-    try:
-        requests.patch(
-            f"{base_url}/rest/v1/domains_scanned?domain=eq.{domain}",
-            headers={
-                "apikey": key,
-                "Authorization": f"Bearer {key}",
-                "Content-Type": "application/json"
-            },
-            json={"alerte_telegram_envoyee": True},
-            timeout=10
-        )
-    except Exception as e:
-        log.warning(f"Supabase patch alerte {domain}: {e}")
+    _supabase_request(
+        "PATCH", "domains_scanned",
+        params={"domain": f"eq.{domain}"},
+        json_body={"alerte_telegram_envoyee": True},
+    )
 
 # ── Pipeline principal ────────────────────────────────────────────────────────
 
@@ -1525,6 +1511,44 @@ def eligible_seo(domain_data: dict) -> tuple[bool, Optional[int]]:
 
     return True, jours_restants
 
+def eligible_revente(domain_data: dict) -> tuple[bool, bool]:
+    """Filtre 2 (revente à l'ancien propriétaire) : société active OU site qui
+    était actif — indépendant du SEO, voir eligible_seo(). Extrait de run() et
+    run_edn() qui dupliquaient ce bloc à l'identique (cf. audit architecture).
+    Retourne (revente_eligible, timing_ok). timing_ok n'a de sens que si
+    revente_eligible est True ; sinon il vaut True par convention (rien à
+    valider côté timing pour un domaine qui n'est de toute façon pas concerné
+    par la revente)."""
+    sirene_ok = domain_data.get("sirene_actif") and domain_data.get("sirene_nom_correspond")
+    site_etait_actif = domain_data.get("site_etait_actif")
+    revente_eligible = bool(sirene_ok or site_etait_actif)
+    if not revente_eligible:
+        return False, True
+
+    source = domain_data.get("source", "")
+    days_until = domain_data.get("days_until_drop")
+    jours_post = domain_data.get("jours_post_drop", 0) or 0
+    deja_repris = domain_data.get("deja_reenregistre_tiers")
+
+    timing_ok = True
+    if sirene_ok:
+        if not deja_repris:
+            if days_until is None:
+                timing_ok = False
+            elif days_until > 60 and jours_post == 0:
+                timing_ok = False
+            elif jours_post > 90:
+                timing_ok = False
+    elif source in ("webexpire", "catchdoms"):
+        timing_ok = en_enchere_active(domain_data)
+    elif days_until is not None:
+        if days_until > 60 and jours_post == 0:
+            timing_ok = False
+        elif jours_post > 90:
+            timing_ok = False
+
+    return True, timing_ok
+
 def run():
     log.info("=== Domain Hunter démarré ===")
     stats = {"collectes": 0, "apres_filtre": 0, "en_base": 0, "alertes": 0}
@@ -1572,49 +1596,15 @@ def run():
             if not domain_data:
                 continue
 
-            # Filtre temporel post-RDAP :
-            # - WebExpire/CatchDoms (sans SIRENE) → uniquement si réellement en enchère
-            #   active (sinon un domaine CatchDoms avec un whois encore valide 365j
-            #   passait quand même, ce qui n'a rien à voir avec une enchère).
-            # - Filtre 2 (entreprise active) déjà repris par un tiers → toujours garder,
-            #   c'est une opportunité de négociation/recours légal (pastille orange).
-            # - Filtre 2 sans timing connu ou trop loin/vieux et pas "déjà repris" → drop
-            #   (sinon un simple listing CatchDoms type "buy" sans rapport avec un drop
-            #   s'affichait avec un "659j" ou un J+0 trompeur dans la revente).
-            # - Sinon (générique) : drop dans ≤ 60j OU tombé depuis ≤ 90j
-            source = domain_data.get("source", "")
-            days_until = domain_data.get("days_until_drop")
-            jours_post = domain_data.get("jours_post_drop", 0) or 0
-            sirene_ok = domain_data.get("sirene_actif") and domain_data.get("sirene_nom_correspond")
-            site_etait_actif = domain_data.get("site_etait_actif")
-            deja_repris = domain_data.get("deja_reenregistre_tiers")
-
-            # Validité "Revente" (Filtre 2) — logique inchangée, basée sur le
-            # timing SIRENE/drop. Indépendante du SEO : un domaine peut valider
-            # les deux, l'un des deux, ou aucun.
-            revente_eligible = bool(sirene_ok or site_etait_actif)
-            revente_timing_ok = True
-            if sirene_ok:
-                if not deja_repris:
-                    if days_until is None:
-                        revente_timing_ok = False
-                    elif days_until > 60 and jours_post == 0:
-                        revente_timing_ok = False
-                    elif jours_post > 90:
-                        revente_timing_ok = False
-            elif source in ("webexpire", "catchdoms"):
-                revente_timing_ok = en_enchere_active(domain_data)
-            elif days_until is not None:
-                if days_until > 60 and jours_post == 0:
-                    revente_timing_ok = False
-                elif jours_post > 90:
-                    revente_timing_ok = False
-
-            # Validité "SEO" (Filtre 1) — totalement indépendante de SIRENE,
-            # voir eligible_seo(). Stockée même si False, pour transparence.
+            # Validité "Revente" (Filtre 2) et "SEO" (Filtre 1) — indépendantes
+            # l'une de l'autre, voir eligible_revente()/eligible_seo(). Un
+            # domaine peut valider les deux, l'un des deux, ou aucun. Stockées
+            # même si False, pour transparence dans le dashboard.
+            revente_eligible, revente_timing_ok = eligible_revente(domain_data)
             seo_ok, jours_enchere = eligible_seo(domain_data)
             domain_data["eligible_seo"] = seo_ok
             domain_data["jours_avant_fin_enchere"] = jours_enchere
+            domain_data["en_enchere_active"] = en_enchere_active(domain_data)
 
             if revente_eligible:
                 if not revente_timing_ok:
@@ -1698,33 +1688,22 @@ def run_edn():
             if not domain_data:
                 continue
 
-            # EDN liste des domaines tombés depuis des mois — sans ce filtre, une
-            # correspondance SIRENE sur un drop très ancien (J+300...) atterrissait
-            # quand même dans la revente. On garde uniquement les cas récents/imminents,
-            # sauf si le domaine a été repris par un tiers (recours PARL EXPERT, garder
-            # quel que soit l'âge — c'est justement l'opportunité de négociation).
-            deja_repris = domain_data.get("deja_reenregistre_tiers")
-            jours_post = domain_data.get("jours_post_drop", 0) or 0
-            days_until = domain_data.get("days_until_drop")
-            sirene_ok = domain_data.get("sirene_actif") and domain_data.get("sirene_nom_correspond")
-            site_etait_actif = domain_data.get("site_etait_actif")
-            revente_eligible = bool(sirene_ok or site_etait_actif)
-
-            revente_timing_ok = True
-            if not deja_repris and days_until is not None:
-                if days_until > 60 and jours_post == 0:
-                    revente_timing_ok = False
-                elif jours_post > 90:
-                    revente_timing_ok = False
-
-            # EDN liste des domaines expirés (pas des enchères au sens propre) :
-            # eligible_seo() restera False ici dans l'immense majorité des cas
-            # (en_enchere_active() exige source webexpire/catchdoms), donc une
-            # correspondance EDN ne peut survivre que via le critère Revente —
-            # comportement inchangé, juste explicité.
+            # EDN liste des domaines tombés depuis des mois — sans le filtre de
+            # timing dans eligible_revente(), une correspondance SIRENE sur un
+            # drop très ancien (J+300...) atterrissait quand même dans la
+            # revente. On garde uniquement les cas récents/imminents, sauf si
+            # le domaine a été repris par un tiers (recours PARL EXPERT, garder
+            # quel que soit l'âge — c'est justement l'opportunité de
+            # négociation). EDN liste des domaines expirés (pas des enchères
+            # au sens propre) : eligible_seo() restera False ici dans l'immense
+            # majorité des cas (en_enchere_active() exige source
+            # webexpire/catchdoms), donc une correspondance EDN ne peut
+            # survivre que via le critère Revente.
+            revente_eligible, revente_timing_ok = eligible_revente(domain_data)
             seo_ok, jours_enchere = eligible_seo(domain_data)
             domain_data["eligible_seo"] = seo_ok
             domain_data["jours_avant_fin_enchere"] = jours_enchere
+            domain_data["en_enchere_active"] = en_enchere_active(domain_data)
 
             if revente_eligible:
                 if not revente_timing_ok:
@@ -1765,21 +1744,12 @@ def run_edn():
 
 def domaines_favoris() -> list[dict]:
     """Récupère les domaines marqués favoris en base (cochés depuis le dashboard)."""
-    base_url = CONFIG.get("supabase_url", "")
-    if not base_url or base_url.startswith("TON_"):
-        return []
-    try:
-        r = requests.get(
-            f"{base_url}/rest/v1/domains_scanned",
-            headers=supabase_headers(),
-            params={"favori": "eq.true", "select": "*"},
-            timeout=15,
-        )
-        r.raise_for_status()
-        return r.json()
-    except Exception as e:
-        log.warning(f"Supabase lecture favoris: {e}")
-        return []
+    r = _supabase_request(
+        "GET", "domains_scanned",
+        params={"favori": "eq.true", "select": "*"},
+        timeout=15,
+    )
+    return r.json() if r else []
 
 def _envoyer_alerte_favori(domain: str, corps: str) -> None:
     message = f"⭐ *SUIVI FAVORI*\n\n🌐 Domaine : `{domain}`\n\n{corps}"

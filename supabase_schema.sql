@@ -60,7 +60,8 @@ create table if not exists domains_scanned (
   expiry_date timestamptz,
   site_etait_actif boolean default false,
   eligible_seo boolean default false,
-  jours_avant_fin_enchere int
+  jours_avant_fin_enchere int,
+  en_enchere_active boolean default false
 );
 
 -- Sécurité RLS : seuls les utilisateurs connectés peuvent lire/écrire
