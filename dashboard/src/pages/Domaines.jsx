@@ -13,6 +13,20 @@ const STATUT_STYLE = {
   rejete:         { bg: 'rgba(107,114,128,0.10)', color: '#6b7280', border: 'rgba(107,114,128,0.2)' },
 }
 
+function SortHeader({ label, column, className, sort, onSort }) {
+  const active = sort.column === column
+  return (
+    <span
+      className={className}
+      onClick={() => onSort(column)}
+      style={{ cursor: 'pointer', userSelect: 'none', color: active ? 'var(--cyan)' : undefined }}
+      title="Trier"
+    >
+      {label}{active ? (sort.asc ? ' ▲' : ' ▼') : ''}
+    </span>
+  )
+}
+
 function StatutBadge({ statut }) {
   const s = STATUT_STYLE[statut] || STATUT_STYLE.rejete
   return (
@@ -123,8 +137,13 @@ export default function Domaines() {
   const [scanMsg, setScanMsg] = useState('')
   const [polling, setPolling] = useState(false)
   const [resetting, setResetting] = useState(false)
+  const [sort, setSort] = useState({ column: 'prix_estime_min', asc: false })
   const pollRef = useRef(null)
   const navigate = useNavigate()
+
+  function handleSort(column) {
+    setSort(prev => prev.column === column ? { column, asc: !prev.asc } : { column, asc: false })
+  }
 
   const fetchCounts = useCallback(async () => {
     const { count: c1 } = await supabase
@@ -142,7 +161,7 @@ export default function Domaines() {
     let q = supabase
       .from('domains_scanned')
       .select('*')
-      .order('prix_estime_min', { ascending: false })
+      .order(sort.column, { ascending: sort.asc, nullsFirst: false })
 
     if (tab === 'revente') {
       q = q.or('and(sirene_actif.eq.true,sirene_nom_correspond.eq.true),site_etait_actif.eq.true')
@@ -158,7 +177,7 @@ export default function Domaines() {
     const { data, error } = await q
     if (!error) setDomaines(data || [])
     setLoading(false)
-  }, [tab, filtreStatut, filtrePrudence, filtreFavoris, scoreMin])
+  }, [tab, filtreStatut, filtrePrudence, filtreFavoris, scoreMin, sort])
 
   useEffect(() => { fetchDomaines(); fetchCounts() }, [fetchDomaines, fetchCounts])
 
@@ -407,13 +426,13 @@ export default function Domaines() {
           <>
             <div className="table-head">
               <span className="col-favori"></span>
-              <span className="col-domain">DOMAINE</span>
-              <span className="col-enchere">ENCHÈRE WEBEXPIRE</span>
-              <span className="col-metrics">TF · RD · TRAFIC · KW</span>
-              <span className="col-presence">PRÉSENCE WEB</span>
-              <span className="col-prix">EST. REVENTE</span>
-              <span className="col-score">SCORE</span>
-              <span className="col-statut">STATUT</span>
+              <SortHeader label="DOMAINE" column="domain" className="col-domain" sort={sort} onSort={handleSort} />
+              <SortHeader label="ENCHÈRE WEBEXPIRE" column="webexpire_prix_actuel" className="col-enchere" sort={sort} onSort={handleSort} />
+              <SortHeader label="TF · RD · TRAFIC · KW" column="trust_flow" className="col-metrics" sort={sort} onSort={handleSort} />
+              <SortHeader label="PRÉSENCE WEB" column="common_crawl_pages" className="col-presence" sort={sort} onSort={handleSort} />
+              <SortHeader label="EST. REVENTE" column="prix_estime_min" className="col-prix" sort={sort} onSort={handleSort} />
+              <SortHeader label="SCORE" column="score" className="col-score" sort={sort} onSort={handleSort} />
+              <SortHeader label="STATUT" column="statut" className="col-statut" sort={sort} onSort={handleSort} />
             </div>
 
             {domaines.map((d, i) => (
@@ -476,14 +495,14 @@ export default function Domaines() {
           <>
             <div className="table-head">
               <span className="col-favori"></span>
-              <span className="col-domain">DOMAINE</span>
-              <span className="col-sirene">SIRENE</span>
-              <span className="col-dirigeant">DIRIGEANT</span>
-              <span className="col-enchere">ENCHÈRE WEBEXPIRE</span>
-              <span className="col-mail">MAIL ANCIEN PROPRIO</span>
-              <span className="col-drop">DROP</span>
-              <span className="col-prix">EST. REVENTE</span>
-              <span className="col-statut">STATUT</span>
+              <SortHeader label="DOMAINE" column="domain" className="col-domain" sort={sort} onSort={handleSort} />
+              <SortHeader label="SIRENE" column="sirene_denomination" className="col-sirene" sort={sort} onSort={handleSort} />
+              <SortHeader label="DIRIGEANT" column="dirigeant_nom" className="col-dirigeant" sort={sort} onSort={handleSort} />
+              <SortHeader label="ENCHÈRE WEBEXPIRE" column="webexpire_prix_actuel" className="col-enchere" sort={sort} onSort={handleSort} />
+              <SortHeader label="MAIL ANCIEN PROPRIO" column="email_contact" className="col-mail" sort={sort} onSort={handleSort} />
+              <SortHeader label="DROP" column="jours_avant_drop" className="col-drop" sort={sort} onSort={handleSort} />
+              <SortHeader label="EST. REVENTE" column="prix_estime_min" className="col-prix" sort={sort} onSort={handleSort} />
+              <SortHeader label="STATUT" column="statut" className="col-statut" sort={sort} onSort={handleSort} />
             </div>
 
             {domaines.map((d, i) => {
