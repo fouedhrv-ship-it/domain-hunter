@@ -55,8 +55,11 @@ function estEnEnchereActive(d) {
   if (d.source === 'webexpire') return !!d.webexpire_lien
   if (d.source === 'catchdoms') {
     const aUneEnchere = !!(d.catchdoms_auction_end_date || d.catchdoms_max_bid || d.catchdoms_bids_count)
-    const dejaExpireOuImminent = (d.days_until_drop ?? 0) <= 0
-    return aUneEnchere && dejaExpireOuImminent
+    if (!aUneEnchere) return false
+    if (d.catchdoms_auction_end_date && new Date(d.catchdoms_auction_end_date).getTime() <= Date.now()) {
+      return false // enchère déjà terminée
+    }
+    return true
   }
   return false
 }

@@ -1351,8 +1351,12 @@ def enrichir_domaine(domain: str, pre_enriched: dict = None) -> Optional[dict]:
     return domain_data
 
 def en_enchere_active(domain_data: dict) -> bool:
-    """Vrai uniquement si le domaine est réellement en enchère/backorder actif —
-    pas juste listé avec une date whois encore lointaine (ex: CatchDoms 365j)."""
+    """Vrai uniquement si le domaine est réellement en enchère active maintenant.
+    Root cause d'un bug précédent : days_until_drop est l'expiration WHOIS du nom
+    de domaine — sans rapport avec la fin de l'enchère. Pour un domaine déjà
+    repris par un tiers (whois ré-enregistré, donc days_until_drop ~365j), une
+    vraie enchère en cours était quand même classée comme inactive. Le seul
+    signal pertinent est catchdoms_auction_end_date par rapport à maintenant."""
     source = domain_data.get("source")
     if source == "webexpire":
         return bool(domain_data.get("webexpire_lien"))
@@ -1362,8 +1366,19 @@ def en_enchere_active(domain_data: dict) -> bool:
             or domain_data.get("catchdoms_max_bid")
             or domain_data.get("catchdoms_bids_count")
         )
-        deja_expire_ou_imminent = (domain_data.get("days_until_drop") or 0) <= 0
-        return a_une_enchere and deja_expire_ou_imminent
+        if not a_une_enchere:
+            return False
+        fin = domain_data.get("catchdoms_auction_end_date")
+        if fin:
+            try:
+                fin_dt = dateutil_parser.parse(fin)
+                if fin_dt.tzinfo is None:
+                    fin_dt = fin_dt.replace(tzinfo=timezone.utc)
+                if fin_dt <= datetime.now(timezone.utc):
+                    return False  # enchère déjà terminée
+            except Exception:
+                pass
+        return True
     return False
 
 def respecte_seuil_seo(domain_data: dict) -> bool:
