@@ -515,7 +515,7 @@ export default function Domaines() {
               <SortHeader label="MAIL ANCIEN PROPRIO" column="email_contact" className="col-mail" sort={sort} onSort={handleSort} />
               <SortHeader label="DROP" column="jours_avant_drop" className="col-drop" sort={sort} onSort={handleSort} />
               <SortHeader label="EST. REVENTE" column="prix_estime_min" className="col-prix" sort={sort} onSort={handleSort} />
-              <SortHeader label="STATUT" column="statut" className="col-statut" sort={sort} onSort={handleSort} />
+              <SortHeader label="SCORE CATCHDOMS" column="catchdoms_score" className="col-score" sort={sort} onSort={handleSort} />
             </div>
 
             {domaines.map((d, i) => {
@@ -597,8 +597,8 @@ export default function Domaines() {
                   )}
                 </div>
 
-                <div className="col-statut">
-                  <StatutBadge statut={d.statut} />
+                <div className="col-score">
+                  <ScoreMini score={d.catchdoms_score} />
                 </div>
               </div>
               )
