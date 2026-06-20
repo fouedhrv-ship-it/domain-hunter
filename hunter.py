@@ -402,11 +402,13 @@ def scraper_expireddomains_net() -> list[dict]:
         log.warning("EDN : scraping désactivé (pas de session valide)")
         return []
 
-    # Cahier des charges : "ciblé uniquement les .fr" — .com retiré (était scrapé
-    # par erreur, contraire à la consigne d'origine).
-    tous = scrape_expireddomains(EDN_SESSION, tld="fr", pages=5)
+    tous = []
+    for tld in ["fr", "com"]:
+        domaines = scrape_expireddomains(EDN_SESSION, tld=tld, pages=5)
+        tous.extend(domaines)
+        time.sleep(2)
 
-    log.info(f"ExpiredDomains.net : {len(tous)} domaines .fr collectés")
+    log.info(f"ExpiredDomains.net : {len(tous)} domaines collectés (.fr + .com)")
     return tous
 
 def recherche_inverse_sirene() -> list[dict]:
@@ -472,7 +474,7 @@ def collecter_domaines() -> tuple[list[dict], list[dict]]:
     domaines_bruts.extend(webexpire)
 
     # Source 2 : CatchDoms (API, remplace le scraping EDN)
-    catchdoms = fetch_catchdoms(tld="fr")
+    catchdoms = fetch_catchdoms(tld="fr") + fetch_catchdoms(tld="com")
     domaines_bruts.extend(catchdoms)
 
     # Source 3 : recherche inversée SIRENE
