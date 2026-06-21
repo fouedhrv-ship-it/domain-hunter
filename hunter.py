@@ -475,7 +475,13 @@ def collecter_domaines() -> list[dict]:
         f"{len(catchdoms_closeout)} CatchDoms (closeout/backorder) + "
         f"{len(webexpire)} WebExpire = {total} total"
     )
-    return catchdoms_auction + catchdoms_closeout + webexpire
+    # WebExpire en premier : CatchDoms agrège déjà WebExpire parmi ses 20
+    # plateformes, donc un même domaine .fr peut apparaître dans les deux
+    # listes. Le dédoublonnage dans run() garde la première occurrence — si
+    # CatchDoms passait avant, son lien/plateforme relayé (parfois périmé ou
+    # mal attribué) écrasait la donnée WebExpire directe et à jour, d'où des
+    # domaines affichés en vente sur la mauvaise plateforme dans le dashboard.
+    return webexpire + catchdoms_auction + catchdoms_closeout
 
 # ── ÉTAPE 2 — Filtre rapide ───────────────────────────────────────────────────
 
