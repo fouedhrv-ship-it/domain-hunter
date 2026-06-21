@@ -352,7 +352,7 @@ export default function Domaines() {
           </svg>
           <div>
             <div className="header-logo-text">Domain<span>Hunter</span></div>
-            <div className="header-logo-ver">v2.0 // SYSTÈME ACTIF</div>
+            <div className="header-logo-ver">SYSTÈME ACTIF</div>
           </div>
         </div>
 
