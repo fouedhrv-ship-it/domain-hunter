@@ -450,7 +450,9 @@ export default function Domaines() {
               <span className="col-favori"></span>
               <SortHeader label="DOMAINE" column="domain" className="col-domain" sort={sort} onSort={handleSort} />
               <SortHeader label="ENCHÈRE" column="catchdoms_max_bid" className="col-enchere" sort={sort} onSort={handleSort} />
-              <SortHeader label="TF · RD · TRAFIC · KW" column="trust_flow" className="col-metrics" sort={sort} onSort={handleSort} />
+              <SortHeader label="TF" column="trust_flow" className="col-tf" sort={sort} onSort={handleSort} />
+              <SortHeader label="RD" column="ref_domains" className="col-rd" sort={sort} onSort={handleSort} />
+              <SortHeader label="TRAFIC · KW" column="webexpire_trafic" className="col-traffic" sort={sort} onSort={handleSort} />
               <SortHeader label="PRÉSENCE WEB" column="common_crawl_pages" className="col-presence" sort={sort} onSort={handleSort} />
               <SortHeader label="EST. REVENTE" column="prix_estime_min" className="col-prix" sort={sort} onSort={handleSort} />
               <SortHeader label="SCORE" column="score" className="col-score" sort={sort} onSort={handleSort} />
@@ -481,10 +483,12 @@ export default function Domaines() {
 
                 <div className="col-enchere"><EnchereCell d={d} /></div>
 
-                <div className="col-metrics">
+                <div className="col-tf">{d.trust_flow ?? '—'}</div>
+
+                <div className="col-rd">{d.ref_domains ?? '—'}</div>
+
+                <div className="col-traffic">
                   <div className="metrics-line">
-                    <span>TF <span className="metric-val">{d.trust_flow ?? '—'}</span></span>
-                    <span>RD <span className="metric-val">{d.ref_domains ?? '—'}</span></span>
                     <span>TR <span className="metric-val">{d.webexpire_trafic ?? '—'}</span></span>
                     <span>KW <span className="metric-val">{d.webexpire_mots_cles ?? '—'}</span></span>
                   </div>

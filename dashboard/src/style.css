@@ -680,7 +680,7 @@ body::before {
 .cols-seo {
   display: grid;
   column-gap: 24px;
-  grid-template-columns: 40px minmax(0,1.8fr) minmax(0,1.2fr) minmax(0,1.3fr) minmax(0,1.1fr) minmax(0,1.2fr) minmax(0,1fr) minmax(0,0.9fr);
+  grid-template-columns: 40px minmax(0,1.8fr) minmax(0,1.2fr) minmax(0,0.6fr) minmax(0,0.6fr) minmax(0,0.7fr) minmax(0,1.1fr) minmax(0,1.2fr) minmax(0,1fr) minmax(0,0.9fr);
 }
 .cols-revente {
   display: grid;
@@ -693,6 +693,9 @@ body::before {
 .col-favori   { min-width: 0; }
 .col-domain   { min-width: 0; }
 .col-metrics  { min-width: 0; }
+.col-tf       { min-width: 0; }
+.col-rd       { min-width: 0; }
+.col-traffic  { min-width: 0; }
 .col-prix     { min-width: 0; text-align: center; }
 .col-score    { min-width: 0; }
 .col-sirene   { min-width: 0; }
@@ -1155,7 +1158,7 @@ body::before {
     gap: 8px;
     min-height: unset;
   }
-  .col-favori, .col-domain, .col-metrics, .col-prix, .col-score, .col-sirene, .col-drop, .col-statut,
+  .col-favori, .col-domain, .col-metrics, .col-tf, .col-rd, .col-traffic, .col-prix, .col-score, .col-sirene, .col-drop, .col-statut,
   .col-enchere, .col-presence, .col-dirigeant, .col-mail {
     width: 100%; padding-right: 0;
   }
