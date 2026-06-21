@@ -179,7 +179,7 @@ export default function Domaines() {
     const { count: c1 } = await supabase
       .from('domains_scanned').select('id', { count: 'exact', head: true })
       .eq('eligible_seo', true)
-      .or('domain.ilike.%.fr,domain.ilike.%.com')
+      .or('domain.ilike.%.fr,domain.ilike.%.com,domain.ilike.%.net')
       .eq('jours_avant_drop', 0)
       .lte('jours_post_drop', 5)
     const { count: c2 } = await supabase
@@ -198,7 +198,7 @@ export default function Domaines() {
     if (tab === 'revente') {
       q = q.or('and(sirene_actif.eq.true,sirene_nom_correspond.eq.true),site_etait_actif.eq.true')
     } else {
-      // Onglet SEO : uniquement .fr/.com, et dropé depuis 5 jours max (au-delà,
+      // Onglet SEO : uniquement .fr/.com/.net, et dropé depuis 5 jours max (au-delà,
       // plus pertinent pour la revente de liens — le squat a eu le temps de
       // jouer, on vise la fenêtre fraîche post-drop). jours_avant_drop=0 est
       // requis en plus de jours_post_drop<=5 : jours_post_drop vaut aussi 0
@@ -207,7 +207,7 @@ export default function Domaines() {
       // "vraiment déjà tombé".
       q = q
         .eq('eligible_seo', true)
-        .or('domain.ilike.%.fr,domain.ilike.%.com')
+        .or('domain.ilike.%.fr,domain.ilike.%.com,domain.ilike.%.net')
         .eq('jours_avant_drop', 0)
         .lte('jours_post_drop', 5)
     }
