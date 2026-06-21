@@ -156,6 +156,8 @@ export default function Domaines() {
     const { count: c1 } = await supabase
       .from('domains_scanned').select('id', { count: 'exact', head: true })
       .eq('eligible_seo', true)
+      .or('domain.ilike.%.fr,domain.ilike.%.com')
+      .lte('jours_post_drop', 5)
     const { count: c2 } = await supabase
       .from('domains_scanned').select('id', { count: 'exact', head: true })
       .or('and(sirene_actif.eq.true,sirene_nom_correspond.eq.true),site_etait_actif.eq.true')
@@ -172,7 +174,13 @@ export default function Domaines() {
     if (tab === 'revente') {
       q = q.or('and(sirene_actif.eq.true,sirene_nom_correspond.eq.true),site_etait_actif.eq.true')
     } else {
-      q = q.eq('eligible_seo', true)
+      // Onglet SEO : uniquement .fr/.com, et dropé depuis 5 jours max (au-delà,
+      // plus pertinent pour la revente de liens — le squat a eu le temps de
+      // jouer, on vise la fenêtre fraîche post-drop).
+      q = q
+        .eq('eligible_seo', true)
+        .or('domain.ilike.%.fr,domain.ilike.%.com')
+        .lte('jours_post_drop', 5)
     }
 
     if (filtreStatut !== 'tous') q = q.eq('statut', filtreStatut)
@@ -454,7 +462,6 @@ export default function Domaines() {
               <SortHeader label="RD" column="ref_domains" className="col-rd" sort={sort} onSort={handleSort} />
               <SortHeader label="TRAFIC · KW" column="webexpire_trafic" className="col-traffic" sort={sort} onSort={handleSort} />
               <SortHeader label="PRÉSENCE WEB" column="common_crawl_pages" className="col-presence" sort={sort} onSort={handleSort} />
-              <SortHeader label="EST. REVENTE" column="prix_estime_min" className="col-prix" sort={sort} onSort={handleSort} />
               <SortHeader label="SCORE" column="score" className="col-score" sort={sort} onSort={handleSort} />
               <SortHeader label="STATUT" column="statut" className="col-statut" sort={sort} onSort={handleSort} />
             </div>
@@ -495,17 +502,6 @@ export default function Domaines() {
                 </div>
 
                 <div className="col-presence"><PresenceCell d={d} /></div>
-
-                <div className="col-prix">
-                  {d.prix_estime_min ? (
-                    <>
-                      <span className="price-value">{d.prix_estime_min}€</span>
-                      <span className="price-range">— {d.prix_estime_max}€</span>
-                    </>
-                  ) : (
-                    <span style={{ color: 'var(--text-3)' }}>—</span>
-                  )}
-                </div>
 
                 <div className="col-score">
                   <ScoreMini score={d.score} />
