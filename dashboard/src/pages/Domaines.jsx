@@ -180,7 +180,7 @@ export default function Domaines() {
       .from('domains_scanned').select('id', { count: 'exact', head: true })
       .eq('eligible_seo', true)
       .or('domain.ilike.%.fr,domain.ilike.%.com,domain.ilike.%.net')
-      .or('en_enchere_active.eq.true,and(jours_avant_drop.eq.0,jours_post_drop.lte.5)')
+      .or('en_enchere_active.eq.true,and(jours_avant_drop.eq.0,jours_post_drop.lte.5),and(catchdoms_type.eq.closeout,catchdoms_price.lte.70)')
     const { count: c2 } = await supabase
       .from('domains_scanned').select('id', { count: 'exact', head: true })
       .or('and(sirene_actif.eq.true,sirene_nom_correspond.eq.true),site_etait_actif.eq.true')
@@ -197,18 +197,21 @@ export default function Domaines() {
     if (tab === 'revente') {
       q = q.or('and(sirene_actif.eq.true,sirene_nom_correspond.eq.true),site_etait_actif.eq.true')
     } else {
-      // Onglet SEO : .fr/.com/.net, et soit actuellement en enchère (CatchDoms
-      // n'a pas de vraie notion de "drop récent" — domaine déjà repris par un
-      // dropcatcher, WHOIS dans ~1 an, mais l'enchère elle est bien réelle et
-      // en cours), soit dropé publiquement depuis 5 jours max (WebExpire).
-      // jours_avant_drop=0 est requis en plus de jours_post_drop<=5 :
-      // jours_post_drop vaut aussi 0 par défaut pour un domaine PAS ENCORE
-      // dropé (expiration WHOIS loin dans le futur), jours_avant_drop=0 est
-      // le seul signal fiable de "vraiment déjà tombé".
+      // Onglet SEO : .fr/.com/.net, et un des trois cas :
+      // 1. en enchère active (CatchDoms n'a pas de vraie notion de "drop
+      //    récent" — domaine déjà repris par un dropcatcher, WHOIS dans ~1
+      //    an, mais l'enchère elle est bien réelle et en cours)
+      // 2. dropé publiquement depuis 5 jours max (WebExpire). jours_avant_drop=0
+      //    est requis en plus de jours_post_drop<=5 : jours_post_drop vaut
+      //    aussi 0 par défaut pour un domaine PAS ENCORE dropé (expiration
+      //    WHOIS loin dans le futur), jours_avant_drop=0 est le seul signal
+      //    fiable de "vraiment déjà tombé"
+      // 3. backorder CatchDoms (closeout, prix fixe, plus d'enchère active) à
+      //    70€ ou moins
       q = q
         .eq('eligible_seo', true)
         .or('domain.ilike.%.fr,domain.ilike.%.com,domain.ilike.%.net')
-        .or('en_enchere_active.eq.true,and(jours_avant_drop.eq.0,jours_post_drop.lte.5)')
+        .or('en_enchere_active.eq.true,and(jours_avant_drop.eq.0,jours_post_drop.lte.5),and(catchdoms_type.eq.closeout,catchdoms_price.lte.70)')
     }
 
     if (filtreStatut !== 'tous') q = q.eq('statut', filtreStatut)
