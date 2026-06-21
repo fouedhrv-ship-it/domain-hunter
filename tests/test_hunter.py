@@ -48,6 +48,18 @@ class TestJoursAvantFinEnchere(unittest.TestCase):
     def test_webexpire_sans_lien(self):
         self.assertIsNone(hunter._jours_avant_fin_enchere({"source": "webexpire"}))
 
+    def test_webexpire_delai_plusieurs_jours(self):
+        data = {"source": "webexpire", "webexpire_lien": "https://x", "delai_enchere": "8 jours"}
+        self.assertEqual(hunter._jours_avant_fin_enchere(data), 8)
+
+    def test_webexpire_delai_un_jour_singulier(self):
+        data = {"source": "webexpire", "webexpire_lien": "https://x", "delai_enchere": "1 jour"}
+        self.assertEqual(hunter._jours_avant_fin_enchere(data), 1)
+
+    def test_webexpire_delai_en_heures_zero_jour(self):
+        data = {"source": "webexpire", "webexpire_lien": "https://x", "delai_enchere": "3 heures"}
+        self.assertEqual(hunter._jours_avant_fin_enchere(data), 0)
+
     def test_catchdoms_closeout_toujours_zero(self):
         data = {"source": "catchdoms", "catchdoms_type": "closeout"}
         self.assertEqual(hunter._jours_avant_fin_enchere(data), 0)

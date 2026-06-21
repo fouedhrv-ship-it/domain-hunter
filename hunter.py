@@ -1451,14 +1451,27 @@ def en_enchere_active(domain_data: dict) -> bool:
 def _jours_avant_fin_enchere(domain_data: dict) -> Optional[int]:
     """Jours restants avant la FIN DE L'ENCHÈRE elle-même — distinct de
     jours_avant_drop, qui est l'expiration WHOIS et n'a structurellement aucun
-    rapport avec la fin d'une enchère (voir en_enchere_active). WebExpire ne
-    fournit pas de date de fin exploitable : l'enchère y est déjà active
-    maintenant, donc 0 jour restant par convention si une enchère existe.
+    rapport avec la fin d'une enchère (voir en_enchere_active). WebExpire
+    fournit le délai réel sous forme de texte scrapé ("8 jours", "1 jour") dans
+    delai_enchere (cf. scraper_webexpire, colonne 2 du tableau) — root cause
+    d'un bug précédent : cette fonction l'ignorait et retournait 0 par
+    convention, faisant croire à une enchère qui se termine aujourd'hui alors
+    qu'il restait plusieurs jours (visible dans le détail du domaine, qui lui
+    affiche delai_enchere brut, mais pas dans la liste qui utilise ce calcul).
     Idem pour les listings CatchDoms "closeout" (backorder à prix fixe, plus
     d'enchère active du tout) : disponibles à l'achat immédiat, donc 0 jour."""
     source = domain_data.get("source")
     if source == "webexpire":
-        return 0 if domain_data.get("webexpire_lien") else None
+        delai = domain_data.get("delai_enchere") or ""
+        if "jour" in delai:
+            m = re.search(r"(\d+)", delai)
+            if m:
+                return int(m.group(1))
+        if domain_data.get("webexpire_lien"):
+            # Pas de "jour" dans le délai (ex: "3 heures") ou délai absent :
+            # enchère active mais qui se termine dans la journée.
+            return 0
+        return None
     if source == "catchdoms":
         if domain_data.get("catchdoms_type") == "closeout":
             return 0
