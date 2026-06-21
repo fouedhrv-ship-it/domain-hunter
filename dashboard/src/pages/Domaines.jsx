@@ -164,6 +164,7 @@ export default function Domaines() {
   const [filtrePrudence, setFiltrePrudence] = useState(false)
   const [filtreFavoris, setFiltreFavoris] = useState(false)
   const [scoreMin, setScoreMin] = useState(0)
+  const [tfMin, setTfMin] = useState(0)
   const [scanning, setScanning] = useState(false)
   const [scanMsg, setScanMsg] = useState('')
   const [polling, setPolling] = useState(false)
@@ -220,15 +221,21 @@ export default function Domaines() {
         .or('en_enchere_active.eq.true,and(jours_avant_drop.eq.0,jours_post_drop.lte.5),and(catchdoms_type.eq.closeout,catchdoms_price.lte.70)')
     }
 
-    if (filtreStatut !== 'tous') q = q.eq('statut', filtreStatut)
+    // Filtre statut (pipeline nouveau/contacté/acquis/vendu) : uniquement
+    // Revente — la colonne STATUT n'existe plus sur l'onglet SEO (remplacée
+    // par DROP), filtrer dessus serait invisible et incompréhensible.
+    if (tab === 'revente' && filtreStatut !== 'tous') q = q.eq('statut', filtreStatut)
     if (filtrePrudence) q = q.eq('flag_prudence', true)
     if (filtreFavoris) q = q.eq('favori', true)
     if (scoreMin > 0) q = q.gte('score', scoreMin)
+    // Filtre TF : uniquement SEO — TF est la métrique vedette de cet onglet
+    // (déjà triable, jamais filtrable), sans équivalent sur Revente.
+    if (tab === 'seo' && tfMin > 0) q = q.gte('trust_flow', tfMin)
 
     const { data, error } = await q
     if (!error) setDomaines(data || [])
     setLoading(false)
-  }, [tab, filtreStatut, filtrePrudence, filtreFavoris, scoreMin, sort])
+  }, [tab, filtreStatut, filtrePrudence, filtreFavoris, scoreMin, tfMin, sort])
 
   useEffect(() => { fetchDomaines(); fetchCounts() }, [fetchDomaines, fetchCounts])
 
@@ -342,6 +349,8 @@ export default function Domaines() {
   const enEnchere    = domaines.filter(d => d.en_enchere_active).length
   const alertCount  = domaines.filter(d => d.alerte_telegram_envoyee).length
   const valeurTotal = domaines.reduce((sum, d) => sum + (d.prix_estime_min || 0), 0)
+  const tfMoyen = total ? Math.round(domaines.reduce((sum, d) => sum + (d.trust_flow || 0), 0) / total) : 0
+  const rdMoyen = total ? Math.round(domaines.reduce((sum, d) => sum + (d.ref_domains || 0), 0) / total) : 0
 
   return (
     <div className="app-root">
@@ -424,35 +433,58 @@ export default function Domaines() {
           <div className="stat-sub">actuellement actives</div>
         </div>
         <div className="stat-card" style={{ '--accent-color': 'var(--amber)' }}>
-          <div className="stat-label">⚡ ALERTES ENVOYÉES</div>
-          <div className="stat-value" style={{ color: 'var(--amber)' }}>{alertCount}</div>
-          <div className="stat-sub">via Telegram</div>
+          {tab === 'seo' ? (
+            <>
+              <div className="stat-label">◆ TF MOYEN</div>
+              <div className="stat-value" style={{ color: 'var(--amber)' }}>{tfMoyen}</div>
+              <div className="stat-sub">sur les domaines affichés</div>
+            </>
+          ) : (
+            <>
+              <div className="stat-label">⚡ ALERTES ENVOYÉES</div>
+              <div className="stat-value" style={{ color: 'var(--amber)' }}>{alertCount}</div>
+              <div className="stat-sub">via Telegram</div>
+            </>
+          )}
         </div>
         <div className="stat-card" style={{ '--accent-color': 'var(--purple)' }}>
-          <div className="stat-label">◎ VALEUR PIPELINE</div>
-          <div className="stat-value" style={{ color: 'var(--purple)' }}>
-            {valeurTotal >= 1000 ? `${(valeurTotal / 1000).toFixed(1)}k` : valeurTotal}€
-          </div>
-          <div className="stat-sub">estimation basse</div>
+          {tab === 'seo' ? (
+            <>
+              <div className="stat-label">◆ RD MOYEN</div>
+              <div className="stat-value" style={{ color: 'var(--purple)' }}>{rdMoyen}</div>
+              <div className="stat-sub">sur les domaines affichés</div>
+            </>
+          ) : (
+            <>
+              <div className="stat-label">◎ VALEUR PIPELINE</div>
+              <div className="stat-value" style={{ color: 'var(--purple)' }}>
+                {valeurTotal >= 1000 ? `${(valeurTotal / 1000).toFixed(1)}k` : valeurTotal}€
+              </div>
+              <div className="stat-sub">estimation basse</div>
+            </>
+          )}
         </div>
       </div>
 
       {/* ── Filters ── */}
       <div className="filters">
         <span className="filter-label">FILTRES //</span>
-        <select
-          className="filter-select"
-          value={filtreStatut}
-          onChange={e => setFiltreStatut(e.target.value)}
-        >
-          {STATUTS.map(st => (
-            <option key={st} value={st}>
-              {st === 'tous' ? 'Tous statuts' : st.replace(/_/g, ' ')}
-            </option>
-          ))}
-        </select>
-
-        <span className="filter-sep" />
+        {tab === 'revente' && (
+          <>
+            <select
+              className="filter-select"
+              value={filtreStatut}
+              onChange={e => setFiltreStatut(e.target.value)}
+            >
+              {STATUTS.map(st => (
+                <option key={st} value={st}>
+                  {st === 'tous' ? 'Tous statuts' : st.replace(/_/g, ' ')}
+                </option>
+              ))}
+            </select>
+            <span className="filter-sep" />
+          </>
+        )}
 
         {tab === 'revente' && (
           <label className="filter-check">
@@ -466,6 +498,22 @@ export default function Domaines() {
         </label>
 
         <span className="filter-sep" />
+
+        {tab === 'seo' && (
+          <>
+            <div className="score-wrapper">
+              TF ≥
+              <input
+                type="number"
+                value={tfMin}
+                min={0} max={100}
+                className="score-input"
+                onChange={e => setTfMin(Number(e.target.value))}
+              />
+            </div>
+            <span className="filter-sep" />
+          </>
+        )}
 
         <div className="score-wrapper">
           Score ≥
