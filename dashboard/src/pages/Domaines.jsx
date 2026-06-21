@@ -406,7 +406,7 @@ export default function Domaines() {
           <span className="tab-count">{counts.seo}</span>
         </button>
         <button className={`tab-btn${tab === 'revente' ? ' active' : ''}`} onClick={() => setTab('revente')}>
-          💰 Revente à l'ancien propriétaire
+          💰 Achat revente Cash
           <span className="tab-count">{counts.revente}</span>
         </button>
       </div>
