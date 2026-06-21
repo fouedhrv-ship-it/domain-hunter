@@ -180,8 +180,7 @@ export default function Domaines() {
       .from('domains_scanned').select('id', { count: 'exact', head: true })
       .eq('eligible_seo', true)
       .or('domain.ilike.%.fr,domain.ilike.%.com,domain.ilike.%.net')
-      .eq('jours_avant_drop', 0)
-      .lte('jours_post_drop', 5)
+      .or('en_enchere_active.eq.true,and(jours_avant_drop.eq.0,jours_post_drop.lte.5)')
     const { count: c2 } = await supabase
       .from('domains_scanned').select('id', { count: 'exact', head: true })
       .or('and(sirene_actif.eq.true,sirene_nom_correspond.eq.true),site_etait_actif.eq.true')
@@ -198,18 +197,18 @@ export default function Domaines() {
     if (tab === 'revente') {
       q = q.or('and(sirene_actif.eq.true,sirene_nom_correspond.eq.true),site_etait_actif.eq.true')
     } else {
-      // Onglet SEO : uniquement .fr/.com/.net, et dropé depuis 5 jours max (au-delà,
-      // plus pertinent pour la revente de liens — le squat a eu le temps de
-      // jouer, on vise la fenêtre fraîche post-drop). jours_avant_drop=0 est
-      // requis en plus de jours_post_drop<=5 : jours_post_drop vaut aussi 0
-      // par défaut pour un domaine PAS ENCORE dropé (expiration WHOIS loin
-      // dans le futur), jours_avant_drop=0 est le seul signal fiable de
-      // "vraiment déjà tombé".
+      // Onglet SEO : .fr/.com/.net, et soit actuellement en enchère (CatchDoms
+      // n'a pas de vraie notion de "drop récent" — domaine déjà repris par un
+      // dropcatcher, WHOIS dans ~1 an, mais l'enchère elle est bien réelle et
+      // en cours), soit dropé publiquement depuis 5 jours max (WebExpire).
+      // jours_avant_drop=0 est requis en plus de jours_post_drop<=5 :
+      // jours_post_drop vaut aussi 0 par défaut pour un domaine PAS ENCORE
+      // dropé (expiration WHOIS loin dans le futur), jours_avant_drop=0 est
+      // le seul signal fiable de "vraiment déjà tombé".
       q = q
         .eq('eligible_seo', true)
         .or('domain.ilike.%.fr,domain.ilike.%.com,domain.ilike.%.net')
-        .eq('jours_avant_drop', 0)
-        .lte('jours_post_drop', 5)
+        .or('en_enchere_active.eq.true,and(jours_avant_drop.eq.0,jours_post_drop.lte.5)')
     }
 
     if (filtreStatut !== 'tous') q = q.eq('statut', filtreStatut)
