@@ -74,6 +74,29 @@ function DropBadge({ jours_avant, jours_post, source, delai, deja_repris, en_enc
   return <span style={{ color: 'var(--text-3)' }}>—</span>
 }
 
+function DropStatusCell({ d }) {
+  if (d.en_enchere_active) {
+    return (
+      <span className="drop-badge urgent" style={{ background: 'rgba(245,158,11,0.1)', color: 'var(--amber)', borderColor: 'rgba(245,158,11,0.3)' }}>
+        ⚡ ENCHÈRE{d.jours_avant_fin_enchere != null ? ` · ${d.jours_avant_fin_enchere}j` : ''}
+      </span>
+    )
+  }
+  if (d.catchdoms_type === 'closeout') {
+    return (
+      <span className="drop-badge" style={{ background: 'rgba(148,163,184,0.1)', color: 'var(--text-2)', borderColor: 'rgba(148,163,184,0.25)' }}>
+        📦 BACKORDER
+      </span>
+    )
+  }
+  if (d.jours_post_drop != null) {
+    if (d.jours_post_drop <= 30) return <span className="drop-badge urgent">🔥 J+{d.jours_post_drop}</span>
+    if (d.jours_post_drop <= 90) return <span className="drop-badge hot">J+{d.jours_post_drop}</span>
+    return <span className="drop-badge ok">J+{d.jours_post_drop}</span>
+  }
+  return <span style={{ color: 'var(--text-3)' }}>—</span>
+}
+
 function EnchereCell({ d }) {
   const enEnchereWebexpire = d.source === 'webexpire' && d.webexpire_lien
   if (enEnchereWebexpire) {
@@ -460,10 +483,10 @@ export default function Domaines() {
               <SortHeader label="ENCHÈRE" column="catchdoms_max_bid" className="col-enchere" sort={sort} onSort={handleSort} />
               <SortHeader label="TF" column="trust_flow" className="col-tf" sort={sort} onSort={handleSort} />
               <SortHeader label="RD" column="ref_domains" className="col-rd" sort={sort} onSort={handleSort} />
-              <SortHeader label="TRAFIC · KW" column="webexpire_trafic" className="col-traffic" sort={sort} onSort={handleSort} />
+              <SortHeader label="TRAFIC" column="webexpire_trafic" className="col-traffic" sort={sort} onSort={handleSort} />
               <SortHeader label="PRÉSENCE WEB" column="common_crawl_pages" className="col-presence" sort={sort} onSort={handleSort} />
               <SortHeader label="SCORE" column="score" className="col-score" sort={sort} onSort={handleSort} />
-              <SortHeader label="STATUT" column="statut" className="col-statut" sort={sort} onSort={handleSort} />
+              <SortHeader label="DROP" column="jours_post_drop" className="col-statut" sort={sort} onSort={handleSort} />
             </div>
 
             {domaines.map((d, i) => (
@@ -494,12 +517,7 @@ export default function Domaines() {
 
                 <div className="col-rd">{d.ref_domains ?? '—'}</div>
 
-                <div className="col-traffic">
-                  <div className="metrics-line">
-                    <span>TR <span className="metric-val">{d.webexpire_trafic ?? '—'}</span></span>
-                    <span>KW <span className="metric-val">{d.webexpire_mots_cles ?? '—'}</span></span>
-                  </div>
-                </div>
+                <div className="col-traffic">{d.webexpire_trafic ?? '—'}</div>
 
                 <div className="col-presence"><PresenceCell d={d} /></div>
 
@@ -508,7 +526,7 @@ export default function Domaines() {
                 </div>
 
                 <div className="col-statut">
-                  <StatutBadge statut={d.statut} />
+                  <DropStatusCell d={d} />
                 </div>
               </div>
             ))}
