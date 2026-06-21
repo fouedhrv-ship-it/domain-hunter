@@ -180,6 +180,7 @@ export default function Domaines() {
       .from('domains_scanned').select('id', { count: 'exact', head: true })
       .eq('eligible_seo', true)
       .or('domain.ilike.%.fr,domain.ilike.%.com')
+      .eq('jours_avant_drop', 0)
       .lte('jours_post_drop', 5)
     const { count: c2 } = await supabase
       .from('domains_scanned').select('id', { count: 'exact', head: true })
@@ -199,10 +200,15 @@ export default function Domaines() {
     } else {
       // Onglet SEO : uniquement .fr/.com, et dropé depuis 5 jours max (au-delà,
       // plus pertinent pour la revente de liens — le squat a eu le temps de
-      // jouer, on vise la fenêtre fraîche post-drop).
+      // jouer, on vise la fenêtre fraîche post-drop). jours_avant_drop=0 est
+      // requis en plus de jours_post_drop<=5 : jours_post_drop vaut aussi 0
+      // par défaut pour un domaine PAS ENCORE dropé (expiration WHOIS loin
+      // dans le futur), jours_avant_drop=0 est le seul signal fiable de
+      // "vraiment déjà tombé".
       q = q
         .eq('eligible_seo', true)
         .or('domain.ilike.%.fr,domain.ilike.%.com')
+        .eq('jours_avant_drop', 0)
         .lte('jours_post_drop', 5)
     }
 
