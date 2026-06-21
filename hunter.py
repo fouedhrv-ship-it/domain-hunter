@@ -1222,7 +1222,13 @@ def upsert_domain(domain_data: dict) -> None:
         k: v for k, v in domain_data.items()
         if not isinstance(v, datetime) and k not in _CHAMPS_INTERNES
     }
-    _supabase_request("POST", "domains_scanned", json_body=payload)
+    # on_conflict=domain requis : sans lui PostgREST matche par défaut sur la
+    # clé primaire (id, jamais envoyée ici) et le "Prefer: merge-duplicates"
+    # de supabase_headers() ne s'applique donc jamais — un domaine déjà en
+    # base retombe sur l'insert plat et tape la contrainte unique (domain),
+    # 409 silencieusement avalé par _supabase_request, données figées au
+    # premier scan pour toujours.
+    _supabase_request("POST", "domains_scanned", params={"on_conflict": "domain"}, json_body=payload)
 
 def domaine_deja_alerte(domain: str) -> bool:
     r = _supabase_request(
