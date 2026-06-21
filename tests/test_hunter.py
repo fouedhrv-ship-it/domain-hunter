@@ -78,7 +78,7 @@ class TestEligibleSeo(unittest.TestCase):
         self.assertTrue(ok)
 
     def test_tf_trop_bas_rejete(self):
-        ok, _ = hunter.eligible_seo(self._domaine_ok(trust_flow=15))
+        ok, _ = hunter.eligible_seo(self._domaine_ok(trust_flow=10))
         self.assertFalse(ok)
 
     def test_tf_trop_haut_rejete(self):
