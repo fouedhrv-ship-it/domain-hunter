@@ -340,7 +340,14 @@ export default function Domaines() {
       {/* ── Header ── */}
       <header className="app-header">
         <div className="header-logo">
-          <span className="header-logo-icon">◈</span>
+          <svg className="header-logo-target" viewBox="0 0 64 64" width="28" height="28">
+            <circle cx="32" cy="32" r="30" fill="#0a0e14" stroke="#22d3ee" strokeWidth="2"/>
+            <circle cx="32" cy="32" r="24" fill="#f43f5e"/>
+            <circle cx="32" cy="32" r="18" fill="#0a0e14"/>
+            <circle cx="32" cy="32" r="12" fill="#22d3ee"/>
+            <circle cx="32" cy="32" r="6" fill="#fbbf24"/>
+            <circle cx="32" cy="32" r="2.2" fill="#0a0e14"/>
+          </svg>
           <div>
             <div className="header-logo-text">Domain<span>Hunter</span></div>
             <div className="header-logo-ver">v2.0 // SYSTÈME ACTIF</div>

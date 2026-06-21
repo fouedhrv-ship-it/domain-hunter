@@ -325,6 +325,19 @@ body::before {
   font-size: 18px;
   line-height: 1;
 }
+.header-logo-target {
+  animation: target-spin 8s linear infinite, target-pulse 2s ease-in-out infinite;
+  transform-origin: center;
+  filter: drop-shadow(0 0 4px rgba(34,211,238,0.4));
+}
+@keyframes target-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+@keyframes target-pulse {
+  0%, 100% { filter: drop-shadow(0 0 4px rgba(34,211,238,0.4)); }
+  50%      { filter: drop-shadow(0 0 9px rgba(34,211,238,0.85)); }
+}
 .header-logo-text {
   font-size: 14px;
   font-weight: 700;
