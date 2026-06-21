@@ -114,6 +114,10 @@ function EnchereCell({ d }) {
     )
   }
   if (d.catchdoms_purchase_url) {
+    // CatchDoms ne rafraîchit ses prix d'enchère qu'1x/jour — avec des
+    // enchérisseurs actifs (bids_count > 0), le prix réel peut avoir bougé
+    // depuis. "à partir de" + tooltip plutôt qu'un prix affiché comme exact.
+    const enchereEnCours = d.catchdoms_type !== 'closeout' && (d.catchdoms_bids_count || 0) > 0
     return (
       <a
         href={d.catchdoms_purchase_url}
@@ -121,9 +125,11 @@ function EnchereCell({ d }) {
         rel="noopener noreferrer"
         onClick={e => e.stopPropagation()}
         style={{ display: 'block', fontSize: 12, color: 'var(--cyan)' }}
+        title={enchereEnCours ? "Prix CatchDoms (rafraîchi 1x/jour) — peut être périmé jusqu'à 24h, vérifier le prix réel sur le lien" : undefined}
       >
         ↗ {d.catchdoms_purchase_platform || 'CatchDoms'}
-        {d.catchdoms_max_bid != null && ` · ${d.catchdoms_max_bid}€`}
+        {d.catchdoms_max_bid != null && enchereEnCours && ` · à partir de ${d.catchdoms_max_bid}€ ⚠`}
+        {d.catchdoms_max_bid != null && !enchereEnCours && ` · ${d.catchdoms_max_bid}€`}
         {d.catchdoms_max_bid == null && d.catchdoms_price != null && ` · ${d.catchdoms_price}€ (prix fixe)`}
         {d.catchdoms_type === 'closeout' && <span className="badge-surpaye" style={{ marginLeft: 6, color: 'var(--text-2)', background: 'rgba(148,163,184,0.1)', border: '1px solid rgba(148,163,184,0.25)' }}>BACKORDER</span>}
       </a>
