@@ -552,7 +552,6 @@ export default function Domaines() {
               <SortHeader label="SIRENE" column="sirene_denomination" className="col-sirene" sort={sort} onSort={handleSort} />
               <SortHeader label="DIRIGEANT" column="dirigeant_nom" className="col-dirigeant" sort={sort} onSort={handleSort} />
               <SortHeader label="ENCHÈRE" column="catchdoms_max_bid" className="col-enchere" sort={sort} onSort={handleSort} />
-              <SortHeader label="MAIL ANCIEN PROPRIO" column="email_contact" className="col-mail" sort={sort} onSort={handleSort} />
               <SortHeader label="DROP" column="jours_avant_drop" className="col-drop" sort={sort} onSort={handleSort} />
               <SortHeader label="EST. REVENTE" column="prix_estime_min" className="col-prix" sort={sort} onSort={handleSort} />
               <SortHeader label="SCORE CATCHDOMS" column="catchdoms_score" className="col-score" sort={sort} onSort={handleSort} />
@@ -608,12 +607,6 @@ export default function Domaines() {
                 </div>
 
                 <div className="col-enchere"><EnchereCell d={d} /></div>
-
-                <div className="col-mail" style={{ fontSize: 11, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                  {d.email_contact
-                    ? <span style={{ color: 'var(--cyan)' }}>{d.email_contact}</span>
-                    : <span style={{ color: 'var(--text-3)' }}>non trouvé</span>}
-                </div>
 
                 <div className="col-drop">
                   <DropBadge

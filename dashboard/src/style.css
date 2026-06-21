@@ -698,7 +698,7 @@ body::before {
 .cols-revente {
   display: grid;
   column-gap: 24px;
-  grid-template-columns: 40px minmax(0,1.8fr) minmax(0,1.5fr) minmax(0,1.3fr) minmax(0,1.2fr) minmax(0,1.3fr) minmax(0,0.9fr) minmax(0,1.2fr) minmax(0,1fr);
+  grid-template-columns: 40px minmax(0,1.8fr) minmax(0,1.5fr) minmax(0,1.3fr) minmax(0,1.2fr) minmax(0,0.9fr) minmax(0,1.2fr) minmax(0,1fr);
 }
 
 /* Colonnes (espacement résiduel, la largeur vient du grid-template-columns
