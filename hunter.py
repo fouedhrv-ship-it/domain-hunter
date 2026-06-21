@@ -25,7 +25,7 @@ def load_config() -> dict:
         "prix_minimum_alerte": 500,
         "score_minimum_dashboard": 40,
         "catchdoms_score_min_revente": 40,
-        "tf_min_seo": 20,
+        "tf_min_seo": 15,
         "tf_max_seo": 30,
         "jours_max_enchere_seo": 10,
         "tlds_autorises": [".fr", ".com", ".net"],
@@ -1479,7 +1479,7 @@ def eligible_seo(domain_data: dict) -> tuple[bool, Optional[int]]:
         agrégées par CatchDoms, + WebExpire scrapé en direct hors API
         CatchDoms) OU backorder à prix fixe ("closeout" CatchDoms)
       - RD (Referring Domains) entre rd_min_seo et rd_max_backorder (2–300)
-      - TF (Trust Flow) entre tf_min_seo et tf_max_seo (20–30)
+      - TF (Trust Flow) entre tf_min_seo et tf_max_seo (15–30)
       - ≤ jours_max_enchere_seo jours restants avant la fin de l'enchère (10)
       - pas de spam/thématique hors-sujet détecté (blacklist, pivot PBN)
     Retourne (éligible, jours_restants_avant_fin_enchere) — le 2e élément est
@@ -1497,7 +1497,7 @@ def eligible_seo(domain_data: dict) -> tuple[bool, Optional[int]]:
         return False, jours_restants
 
     tf = domain_data.get("trust_flow") or 0
-    tf_min = CONFIG.get("tf_min_seo", 20)
+    tf_min = CONFIG.get("tf_min_seo", 15)
     tf_max = CONFIG.get("tf_max_seo", 30)
     if not (tf_min <= tf <= tf_max):
         return False, jours_restants
