@@ -1259,6 +1259,36 @@ def domaines_existants_recents(jours: int = 1) -> set[str]:
         return set()
     return {row["domain"] for row in r.json() if row.get("domain")}
 
+def purger_encheres_terminees(vus_par_source: dict[str, set[str]]) -> int:
+    """Supprime du dashboard les domaines dont l'enchère a disparu de la
+    source (CatchDoms/WebExpire) depuis le dernier scan — plus aucune trace
+    côté source = vendu (le gagnant l'a récupéré, sinon il serait reparti en
+    closeout/backorder, toujours présent dans vus_par_source).
+    Ne purge que les sources dont la collecte de CE run a réussi (liste non
+    vide) : une collecte vide est presque toujours un échec/blocage temporaire
+    de la source, pas une vraie disparition — purger dans ce cas viderait le
+    dashboard à tort."""
+    total_purges = 0
+    for source in ("catchdoms", "webexpire"):
+        vus = vus_par_source.get(source) or set()
+        if not vus:
+            log.debug(f"Purge {source} ignorée : collecte vide ce run (échec probable, pas une vraie disparition)")
+            continue
+        r = _supabase_request(
+            "GET", "domains_scanned",
+            params={"source": f"eq.{source}", "select": "domain"},
+            timeout=15,
+        )
+        if not r:
+            continue
+        domaines_en_base = {row["domain"] for row in r.json() if row.get("domain")}
+        disparus = domaines_en_base - vus
+        for domain in disparus:
+            _supabase_request("DELETE", "domains_scanned", params={"domain": f"eq.{domain}"})
+            total_purges += 1
+            log.info(f"Purgé (enchère terminée, probablement vendu) : {domain}")
+    return total_purges
+
 def marquer_alerte_envoyee(domain: str) -> None:
     _supabase_request(
         "PATCH", "domains_scanned",
@@ -1576,7 +1606,7 @@ def eligible_revente(domain_data: dict) -> tuple[bool, bool]:
 
 def run():
     log.info("=== Domain Hunter démarré ===")
-    stats = {"collectes": 0, "apres_filtre": 0, "en_base": 0, "alertes": 0}
+    stats = {"collectes": 0, "apres_filtre": 0, "en_base": 0, "alertes": 0, "purges": 0}
 
     domaines_edn = collecter_domaines()
     stats["collectes"] = len(domaines_edn)
@@ -1597,6 +1627,12 @@ def run():
             pre_enriched = {k: v for k, v in d.items() if k != "domain"}
             par_source.setdefault(d.get("source", "?"), []).append((domain, pre_enriched))
             domaines_vus.add(domain)
+
+    # Snapshot AVANT le round-robin ci-dessous, qui dépile (pop) les listes de
+    # par_source en place — après quoi elles seraient vides et la purge
+    # croirait que tout a disparu.
+    vus_par_source = {src: {dom for dom, _ in lst} for src, lst in par_source.items()}
+    stats["purges"] = purger_encheres_terminees(vus_par_source)
 
     # Intercalage round-robin entre sources : sans ça, WebExpire (qui ne liste
     # que du .fr) remplit tout le quota MAX_DOMAINES avant que CatchDoms (qui a
@@ -1665,7 +1701,8 @@ def run():
 
     log.info(
         f"=== Fin : {stats['collectes']} collectés → {stats['apres_filtre']} après filtre "
-        f"→ {stats['en_base']} écrits en base → {stats['alertes']} alertes Telegram ==="
+        f"→ {stats['en_base']} écrits en base → {stats['purges']} purgés (vendus) "
+        f"→ {stats['alertes']} alertes Telegram ==="
     )
 
 def run_edn():
